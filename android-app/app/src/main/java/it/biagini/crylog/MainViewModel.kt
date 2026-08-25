@@ -25,15 +25,22 @@
 package it.biagini.crylog
 
 import android.app.Application
+import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
+import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.Role
 import it.biagini.crylog.hub.DeviceStore
 import it.biagini.crylog.hub.HubClient
+import it.biagini.crylog.nursery.BootReceiver
+import it.biagini.crylog.nursery.NoiseMonitor
 import it.biagini.crylog.nursery.NoiseMonitorService
+import it.biagini.crylog.parent.AlertNotifier
 import it.biagini.crylog.parent.Alerter
+import it.biagini.crylog.parent.SeenEvents
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,14 +84,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // Un token rifiutato non si risolve da solo: si torna al pairing.
                 if (connection is ConnectionState.Failed && connection.unauthorized) resetPairing()
+
+                if (connection is ConnectionState.Connected) {
+                    deliverFcmToken()
+                } else {
+                    // Persa la connessione non sappiamo più se qualcuno stia
+                    // sorvegliando: meglio nessuna informazione che una vecchia.
+                    AlertNotifier(getApplication()).clearWatching()
+                }
             }
         }
 
         viewModelScope.launch {
             client.messages.collect { message ->
-                if (message is HubMessage.Noise) {
-                    alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
-                }
+                handleAlert(message)
                 _uiState.update { current ->
                     if (current !is UiState.Session) return@update current
                     current.copy(events = (listOf(message) + current.events).take(MAX_EVENTS))
@@ -94,7 +107,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Con ruolo Nursery la connessione appartiene al servizio: aprirne una
         // seconda qui significherebbe due sessioni per lo stesso dispositivo.
-        if (store.isPaired && store.role == Role.PARENT) connect()
+        if (store.isPaired && store.role == Role.PARENT) {
+            connect()
+            requestFcmToken()
+        }
+
+        resumeIfInterrupted()
     }
 
     private fun initialState(): UiState = when {
@@ -129,6 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         connection = ConnectionState.Disconnected,
                     )
                     connect()
+                    requestFcmToken()
                 }
                 .onFailure { error ->
                     _uiState.value = UiState.Pairing(
@@ -148,6 +167,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun arm() {
         store.armed = true
         NoiseMonitorService.start(getApplication())
+        BootReceiver.clearNotification(getApplication())
+    }
+
+    /**
+     * Riprende il monitoraggio se risultava armato ma non sta girando.
+     *
+     * È il caso del telefono riavviato: il servizio non può ripartire da solo
+     * da BOOT_COMPLETED, ma qui l'app è in primo piano e il permesso microfono
+     * è già stato concesso, quindi la piattaforma lo consente.
+     */
+    fun resumeIfInterrupted() {
+        if (store.role != Role.NURSERY) return
+        if (!store.armed || NoiseMonitor.armed.value) return
+
+        Log.i(TAG, "monitoraggio interrotto da un riavvio: riprendo")
+        arm()
     }
 
     fun disarm() {
@@ -180,6 +215,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!store.armed) return
         NoiseMonitorService.stop(getApplication())
         NoiseMonitorService.start(getApplication())
+    }
+
+    /**
+     * Avvisi per gli eventi che arrivano dal WebSocket.
+     *
+     * Produce la stessa notifica del percorso push, di proposito: una
+     * vibrazione senza nulla in tendina lascia chi è su un'altra schermata a
+     * chiedersi perché il telefono si sia mosso. Quale dei due canali abbia
+     * portato l'evento non deve fare differenza.
+     */
+    private fun handleAlert(message: HubMessage) {
+        val notifier = AlertNotifier(getApplication())
+
+        when (message) {
+            is HubMessage.Noise -> {
+                if (!SeenEvents.markSeen(message.id)) return
+                notifier.notifyNoise(message.id)
+                alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+            }
+
+            is HubMessage.NurseryOffline -> {
+                notifier.clearWatching()
+                if (!SeenEvents.markSeen("offline:${message.nurseryId}")) return
+                notifier.notifyNurseryGone(message.reason)
+                alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+            }
+
+            // Il Nursery Node è tornato: l'allarme non descrive più la realtà,
+            // e al suo posto va lo stato di chi sorveglia.
+            is HubMessage.NurseryOnline -> {
+                SeenEvents.forgetOffline(message.nurseryId)
+                notifier.clearNurseryGone()
+                notifier.notifyWatching(message.nurseryName, message.at)
+            }
+
+            else -> Unit
+        }
+    }
+
+    // --- Notifiche push ---
+
+    /**
+     * Chiede a Firebase il token corrente.
+     *
+     * Fallisce senza rumore se il progetto Firebase non è configurato: le push
+     * sono opzionali, e l'app deve restare utilizzabile con le sole notifiche
+     * in tempo reale.
+     */
+    private fun requestFcmToken() {
+        if (store.role != Role.PARENT) return
+
+        runCatching {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                store.pendingFcmToken = token
+                deliverFcmToken()
+            }
+        }.onFailure {
+            Log.i(TAG, "Firebase non configurato: niente notifiche in background")
+        }
+    }
+
+    /** Il token vale solo se l'Hub lo conosce, quindi si riprova a ogni connessione. */
+    private fun deliverFcmToken() {
+        val token = store.pendingFcmToken ?: return
+        if (token == store.sentFcmToken) return
+
+        if (client.send(HubProtocol.fcmToken(token))) {
+            store.sentFcmToken = token
+            Log.i(TAG, "token FCM consegnato all'Hub")
+        }
     }
 
     // --- Parent Node ---
@@ -232,5 +337,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MAX_EVENTS = 50
+        const val TAG = "CryLogViewModel"
     }
 }

@@ -87,6 +87,28 @@ and over the WebSocket at `/ws`. The Hub stores only its hash.
 Codes use a Crockford base32 alphabet — no I, L, O or U — so they can be read aloud or typed
 without ambiguity. Until the app ships its pairing screen, the two calls above are the procedure.
 
+### Push notifications (optional)
+
+Without this, alerts only reach a Parent Node whose app is open. With it, they arrive with
+the app closed and the phone asleep — which is the point of a baby monitor at night.
+
+In the [Firebase console](https://console.firebase.google.com):
+
+1. Create a project, Google Analytics off (it adds tracking and buys nothing here).
+2. Register an Android app with package name `it.biagini.crylog`. SHA-1 is not needed for FCM.
+3. Download `google-services.json` into `android-app/app/`.
+4. Settings → **Service accounts** → **Generate new private key**. The language shown above the
+   button only changes the sample snippet; the JSON is the same either way.
+
+Put the service account file somewhere your Hub can read, mount it read-only and point
+`CRYLOG_FCM_CREDENTIALS` at it — see the commented lines in `hub/docker-compose.yml`.
+
+**That file can send notifications as you.** Keep it out of the repository; the `.gitignore`
+covers the usual names but not every one Firebase might produce.
+
+Both files are optional. Without `google-services.json` the Gradle plugin is skipped and the
+app still builds; without the service account the Hub starts and says so in its logs.
+
 ### Android app
 
 Open `android-app/` in Android Studio and run. Requires JDK 17 and AGP 9.3.

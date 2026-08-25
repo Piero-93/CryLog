@@ -19,13 +19,14 @@ import { createServer } from 'node:http'
 import { createRegistry } from './fanout.js'
 import { createHttpHandler } from './http.js'
 import { attachWebSocket } from './ws.js'
+import { createFcmSender } from './fcm.js'
 import { createWatchdog } from './watchdog.js'
 
 const SILENT = { info() {}, warn() {}, error() {} }
 
 // Tutto il cablaggio vive qui e non in index.js, cosi' un test puo' istanziare
 // un Hub completo su una porta effimera senza avviare un processo.
-export function createHub({ config, db, adminToken, log = console, now = Date.now }) {
+export function createHub({ config, db, adminToken, fcm = createFcmSender(), log = console, now = Date.now }) {
   const startedAt = now()
   const registry = createRegistry()
   const handle = createHttpHandler({ db, config, adminToken, registry, startedAt, now })
@@ -40,7 +41,7 @@ export function createHub({ config, db, adminToken, log = console, now = Date.no
     })
   })
 
-  const sockets = attachWebSocket({ server, db, config, registry, log, now })
+  const sockets = attachWebSocket({ server, db, config, registry, fcm, log, now })
 
   const watchdog = createWatchdog({
     registry,

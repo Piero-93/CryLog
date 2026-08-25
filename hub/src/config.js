@@ -41,4 +41,8 @@ export const config = {
   watchdogTickMs: int('CRYLOG_WATCHDOG_TICK_MS', 15_000),
 
   pairingCodeTtlMs: int('CRYLOG_PAIRING_TTL_MS', 10 * 60_000),
+
+  // Percorso della service account per le push. Assente = niente FCM, e l'Hub
+  // funziona lo stesso: le notifiche arrivano solo ai Parent Node connessi.
+  fcmCredentialsPath: process.env.CRYLOG_FCM_CREDENTIALS ?? null,
 }

@@ -10,4 +10,20 @@
 
     <string name="channel_alert">Avvisi di rumore</string>
     <string name="channel_alert_description">Notifica quando il Nursery Node sente un rumore</string>
+    <string name="alert_title">Rumore rilevato</string>
+    <string name="alert_text">Apri CryLog per i dettagli</string>
+
+    <string name="gone_title">Nessuno sta sorvegliando</string>
+    <string name="gone_text_timeout">Il Nursery Node non risponde più. Controlla che sia acceso e collegato alla rete.</string>
+    <string name="gone_text_disconnected">Il Nursery Node si è scollegato. La sorveglianza è ferma.</string>
+
+    <string name="channel_status">Stato della sorveglianza</string>
+    <string name="channel_status_description">Mostra chi sta sorvegliando e da quanto tempo</string>
+    <string name="watching_title">%1$s sta sorvegliando</string>
+    <string name="watching_text">CryLog riceve gli avvisi da questo Nursery Node</string>
+
+    <string name="channel_stopped">Monitoraggio interrotto</string>
+    <string name="channel_stopped_description">Avvisa quando la sorveglianza si è fermata senza che tu lo abbia chiesto</string>
+    <string name="stopped_title">CryLog non sta sorvegliando</string>
+    <string name="stopped_text">Il telefono si è riavviato. Tocca per riprendere l’ascolto.</string>
 </resources>

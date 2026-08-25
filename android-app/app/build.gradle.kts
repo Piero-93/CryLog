@@ -3,6 +3,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Il plugin si applica solo se il file di Firebase c'è. Le notifiche push sono
+// opzionali per dichiarazione, e chi clona il repo senza un progetto Firebase
+// deve poter compilare lo stesso — con l'app che avvisa in tempo reale ma non
+// in background.
+val firebaseConfigured = file("google-services.json").exists()
+if (firebaseConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.lifecycle("google-services.json assente: build senza notifiche push")
+}
+
 android {
     namespace = "it.biagini.crylog"
     compileSdk = 37
@@ -47,6 +58,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     implementation(libs.okhttp)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     debugImplementation(libs.androidx.ui.tooling)
 

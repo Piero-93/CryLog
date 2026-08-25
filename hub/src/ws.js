@@ -17,6 +17,8 @@
 
 import { WebSocketServer } from 'ws'
 import { bearerToken } from './http.js'
+import { selectPushTargets } from './fanout.js'
+import { noisePayload, offlinePayload } from './fcm.js'
 import { hashSecret, generateDeviceId } from './pairing.js'
 import { error, noiseEvent, nurseryOffline, nurseryOnline, parseClientMessage, welcome } from './protocol.js'
 
@@ -25,7 +27,7 @@ const rejectUpgrade = (socket, status, reason) => {
   socket.destroy()
 }
 
-export function attachWebSocket({ server, db, config, registry, log = console, now = Date.now }) {
+export function attachWebSocket({ server, db, config, registry, fcm, log = console, now = Date.now }) {
   // Durante lo shutdown i socket vengono chiusi in massa e i loro handler
   // girano dopo che il database e stato chiuso: senza questa guardia
   // finirebbero su statement gia finalizzati.
@@ -57,7 +59,20 @@ export function attachWebSocket({ server, db, config, registry, log = console, n
     if (!nursery) return
     const message = nurseryOffline(nursery, connection.lastSeenAt, reason)
     const delivered = registry.broadcastToRole('parent', message)
-    log.warn(`nursery "${nursery.name}" offline (${reason}), notificati ${delivered} Parent Node`)
+
+    // Un Nursery Node che sparisce va detto anche a chi ha l'app chiusa: da
+    // quel momento nessuno sta sorvegliando, ed e' l'informazione piu'
+    // importante che questo sistema possa dare.
+    const targets = selectPushTargets(db.listDevicesByRole('parent'), registry.isOnline)
+    for (const parent of targets) {
+      fcm.send(parent.fcmToken, offlinePayload(nursery.id, reason)).then((stillValid) => {
+        if (!stillValid) db.setFcmToken(parent.id, null)
+      })
+    }
+
+    log.warn(
+      `nursery "${nursery.name}" offline (${reason}): ${delivered} connessioni, ${targets.length} push`,
+    )
   }
 
   function onConnection(ws, device) {
@@ -68,6 +83,9 @@ export function attachWebSocket({ server, db, config, registry, log = console, n
       role: device.role,
       name: device.name,
       lastSeenAt: at,
+      // Da quando questa sessione e' aperta: il Parent Node lo mostra come
+      // tempo di sorveglianza.
+      connectedAt: at,
       send(message) {
         if (ws.readyState !== ws.OPEN) return false
         try {
@@ -93,6 +111,15 @@ export function attachWebSocket({ server, db, config, registry, log = console, n
 
     if (device.role === 'nursery' && wasOffline) {
       registry.broadcastToRole('parent', nurseryOnline(device, at))
+    }
+
+    // Un Parent Node che si collega deve sapere subito chi sta sorvegliando e
+    // da quando: senza, resterebbe all'oscuro fino al primo evento.
+    if (device.role === 'parent') {
+      for (const other of registry.listByRole('nursery')) {
+        const nursery = db.findDeviceById(other.deviceId)
+        if (nursery) connection.send(nurseryOnline(nursery, other.connectedAt))
+      }
     }
     log.info(`connesso: ${device.role} "${device.name}" (${device.id})`)
 
@@ -141,7 +168,19 @@ export function attachWebSocket({ server, db, config, registry, log = console, n
           createdAt: connection.lastSeenAt,
         })
         const delivered = registry.broadcastToRole('parent', noiseEvent(event, device))
-        log.info(`evento rumore da "${device.name}": consegnato a ${delivered} connessioni`)
+
+        // Chi non ha il WebSocket aperto viene raggiunto dalla push: e' il caso
+        // normale di notte, con l'app chiusa e il telefono in Doze.
+        const targets = selectPushTargets(db.listDevicesByRole('parent'), registry.isOnline)
+        for (const parent of targets) {
+          fcm.send(parent.fcmToken, noisePayload(event.id)).then((stillValid) => {
+            if (!stillValid) db.setFcmToken(parent.id, null)
+          })
+        }
+
+        log.info(
+          `evento rumore da "${device.name}": ${delivered} connessioni, ${targets.length} push`,
+        )
         break
       }
 

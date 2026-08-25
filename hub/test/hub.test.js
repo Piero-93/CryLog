@@ -237,3 +237,31 @@ test('un dispositivo gia accoppiato puo invitarne un altro', async () => {
 test('un token inventato non puo invitare nessuno', async () => {
   assert.equal((await api('/pairing-codes', { method: 'POST', token: 'inventato' })).status, 401)
 })
+
+test('un Parent Node che si collega sa subito chi sta sorvegliando', async () => {
+  const nursery = await pair('nursery', 'Cameretta attiva')
+  const nurseryWs = await connect(nursery.token)
+  await nurseryWs.next('welcome')
+
+  // Il Parent arriva dopo: deve comunque sapere che c'e' qualcuno in ascolto,
+  // senza aspettare il primo rumore.
+  const parent = await pair('parent', 'Telefono tardivo')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  const online = await parentWs.next('nursery-online')
+  assert.equal(online.nurseryId, nursery.deviceId)
+  assert.ok(online.at > 0, 'serve il momento da cui e attivo, per il cronometro')
+
+  nurseryWs.close()
+  parentWs.close()
+})
+
+test('senza Nursery Node attivi non arriva nessuno stato iniziale', async () => {
+  const parent = await pair('parent', 'Telefono solo')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  await assert.rejects(() => parentWs.next('nursery-online', 300))
+  parentWs.close()
+})

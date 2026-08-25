@@ -18,6 +18,7 @@
 import { randomBytes } from 'node:crypto'
 import { config } from './config.js'
 import { openDatabase } from './db.js'
+import { createFcmSender, loadCredentials } from './fcm.js'
 import { createHub } from './hub.js'
 
 const db = openDatabase(config.dataDir)
@@ -38,7 +39,23 @@ function resolveAdminToken() {
   return generated
 }
 
-const hub = createHub({ config, db, adminToken: resolveAdminToken() })
+const fcm = createFcmSender({ credentials: resolveFcmCredentials() })
+function resolveFcmCredentials() {
+  if (!config.fcmCredentialsPath) {
+    console.log('  FCM non configurato: le notifiche arrivano solo ai Parent Node connessi')
+    return null
+  }
+  try {
+    const credentials = loadCredentials(config.fcmCredentialsPath)
+    console.log(`  FCM attivo sul progetto ${credentials.project_id}`)
+    return credentials
+  } catch (err) {
+    console.error(`  service account FCM non caricata: ${err.message}`)
+    return null
+  }
+}
+
+const hub = createHub({ config, db, adminToken: resolveAdminToken(), fcm })
 
 await hub.start()
 console.log(`crylog-hub in ascolto su ${config.host}:${config.port}`)

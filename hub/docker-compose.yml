@@ -52,8 +52,8 @@ services:
       - CRYLOG_OFFLINE_AFTER_MS=90000
       # Fase 4 — chiave service account per l'invio delle push FCM.
       # Secret vero: mai nel repo, montato come volume di sola lettura.
-      # - CRYLOG_FCM_CREDENTIALS=/run/secrets/fcm-service-account.json
+      - CRYLOG_FCM_CREDENTIALS=/run/secrets/fcm-service-account.json
     volumes:
       - /mnt/Pool1000GB/CryLog/data:/data
-      # - /mnt/Pool1000GB/CryLog/secrets/fcm-service-account.json:/run/secrets/fcm-service-account.json:ro
+      - /mnt/Pool1000GB/CryLog/secrets/fcm-service-account.json:/run/secrets/fcm-service-account.json:ro
     restart: unless-stopped

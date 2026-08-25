@@ -49,3 +49,14 @@ export function createRegistry() {
 export function countReachedDevices(connections) {
   return new Set(connections.map((c) => c.deviceId)).size
 }
+
+/**
+ * Chi va raggiunto via push: i Parent Node che il WebSocket non copre.
+ *
+ * Mandare la push anche a chi e' gia' connesso raddoppierebbe l'avviso senza
+ * aggiungere nulla, e consumerebbe batteria su un dispositivo che ha gia'
+ * ricevuto l'evento in tempo reale.
+ */
+export function selectPushTargets(parents, isOnline) {
+  return parents.filter((parent) => parent.fcmToken && !isOnline(parent.id))
+}

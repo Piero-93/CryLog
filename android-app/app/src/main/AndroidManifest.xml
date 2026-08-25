@@ -12,6 +12,10 @@
     <!-- Parent Node: avvisi percepibili a telefono silenzioso o a faccia in giù. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Solo per avvisare che dopo un riavvio la sorveglianza e ferma: da
+         Android 14 un servizio col microfono non puo partire da qui. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Il flash è un di più: l'app deve funzionare anche dove non c'è. -->
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -33,9 +37,25 @@
         </activity>
 
         <service
+            android:name=".parent.CryLogMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".nursery.NoiseMonitorService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <receiver
+            android:name=".nursery.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

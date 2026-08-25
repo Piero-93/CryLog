@@ -91,6 +91,23 @@ class DeviceStore(context: Context) {
         get() = prefs.getBoolean(KEY_VIBRATE, true)
         set(value) = prefs.edit().putBoolean(KEY_VIBRATE, value).apply()
 
+    /**
+     * Token FCM da consegnare all'Hub.
+     *
+     * Firebase lo può cambiare in qualsiasi momento, anche con l'app chiusa e
+     * l'Hub irraggiungibile: si conserva qui e si invia alla prima occasione,
+     * altrimenti le push smetterebbero di arrivare senza che nessuno se ne
+     * accorga.
+     */
+    var pendingFcmToken: String?
+        get() = prefs.getString(KEY_FCM_TOKEN, null)
+        set(value) = prefs.edit().putString(KEY_FCM_TOKEN, value).apply()
+
+    /** Ultimo token che l'Hub ha effettivamente ricevuto. */
+    var sentFcmToken: String?
+        get() = prefs.getString(KEY_FCM_SENT, null)
+        set(value) = prefs.edit().putString(KEY_FCM_SENT, value).apply()
+
     /** Usato quando l'Hub rifiuta il token: l'unica via d'uscita è rifare il pairing. */
     fun clearPairing() {
         prefs.edit()
@@ -112,5 +129,7 @@ class DeviceStore(context: Context) {
         const val KEY_ARMED = "armed"
         const val KEY_FLASH = "flash_on_alert"
         const val KEY_VIBRATE = "vibrate_on_alert"
+        const val KEY_FCM_TOKEN = "fcm_token_pending"
+        const val KEY_FCM_SENT = "fcm_token_sent"
     }
 }
