@@ -28,17 +28,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import it.biagini.crylog.ui.CryLogApp
 import it.biagini.crylog.ui.CryLogTheme
 
 class MainActivity : ComponentActivity() {
@@ -47,25 +44,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CryLogTheme {
+                val viewModel: MainViewModel = viewModel()
+                val state by viewModel.uiState.collectAsStateWithLifecycle()
+
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Placeholder(Modifier.padding(innerPadding))
+                    CryLogApp(
+                        state = state,
+                        onSelectRole = viewModel::selectRole,
+                        onPair = viewModel::pair,
+                        onReconnect = viewModel::connect,
+                        onChangeRole = viewModel::changeRole,
+                        modifier = Modifier.padding(innerPadding),
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun Placeholder(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("CryLog", style = MaterialTheme.typography.headlineLarge)
-        Text(
-            "Scaffolding. La selezione del ruolo arriva nella Fase 2.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
     }
 }

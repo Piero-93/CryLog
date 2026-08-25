@@ -13,6 +13,7 @@ hub/secrets/
 local.properties
 android-app/build/
 android-app/app/build/
+.kotlin/
 android-app/captures/
 .externalNativeBuild/
 .cxx/
