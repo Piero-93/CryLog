@@ -2,8 +2,10 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Nessuna dipendenza runtime: package.json serve solo per "type": "module" e gli script.
-COPY package.json ./
+# ws e' l'unica dipendenza runtime: Node non ha un server WebSocket nativo.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 COPY src ./src
 
 ENV NODE_ENV=production \

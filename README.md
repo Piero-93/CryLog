@@ -62,6 +62,31 @@ The provided `docker-compose.yml` follows the sidecar pattern: a `tailscale/tail
 owns the network namespace and `serve.json` exposes the Hub over HTTPS on the tailnet only. Nothing
 is published to the public internet.
 
+### Pairing a device
+
+Pairing codes are single-use and expire after ten minutes. Creating one requires the admin
+token, which is either `CRYLOG_ADMIN_TOKEN` or, if unset, generated on first start and printed
+to the logs (`docker logs crylog-hub`).
+
+```sh
+# 1. create a code
+curl -X POST https://crylog.<your-tailnet>.ts.net/pairing-codes \
+  -H "Authorization: Bearer $CRYLOG_ADMIN_TOKEN"
+# -> {"code":"K7M2-P9XQ","expiresAt":...}
+
+# 2. the device redeems it, once
+curl -X POST https://crylog.<your-tailnet>.ts.net/pair \
+  -H "content-type: application/json" \
+  -d '{"code":"K7M2-P9XQ","role":"nursery","name":"Nursery"}'
+# -> {"deviceId":"...","token":"..."}
+```
+
+The device token is what authenticates every later request, over REST (`Authorization: Bearer`)
+and over the WebSocket at `/ws`. The Hub stores only its hash.
+
+Codes use a Crockford base32 alphabet — no I, L, O or U — so they can be read aloud or typed
+without ambiguity. Until the app ships its pairing screen, the two calls above are the procedure.
+
 ### Android app
 
 Open `android-app/` in Android Studio and run. Requires JDK 17 and AGP 9.3.

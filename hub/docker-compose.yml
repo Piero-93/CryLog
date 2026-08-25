@@ -45,6 +45,11 @@ services:
     environment:
       - CRYLOG_PORT=8080
       - CRYLOG_DATA_DIR=/data
+      # Token per creare i codici di pairing. Se assente viene generato al primo
+      # avvio e stampato nei log (docker logs crylog-hub).
+      # - CRYLOG_ADMIN_TOKEN=
+      # Silenzio oltre il quale un Nursery Node e dichiarato offline.
+      - CRYLOG_OFFLINE_AFTER_MS=90000
       # Fase 4 — chiave service account per l'invio delle push FCM.
       # Secret vero: mai nel repo, montato come volume di sola lettura.
       # - CRYLOG_FCM_CREDENTIALS=/run/secrets/fcm-service-account.json

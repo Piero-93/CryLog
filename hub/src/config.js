@@ -15,10 +15,30 @@
  * this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+const int = (name, fallback) => {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} deve essere un numero positivo, ricevuto: ${raw}`)
+  }
+  return value
+}
+
 export const config = {
-  port: Number(process.env.CRYLOG_PORT ?? 8080),
-  // Bind esplicito: dentro il network namespace del sidecar Tailscale l'unico
-  // ingresso legittimo e' tailscale serve, che arriva da localhost.
+  port: int('CRYLOG_PORT', 8080),
   host: process.env.CRYLOG_HOST ?? '0.0.0.0',
   dataDir: process.env.CRYLOG_DATA_DIR ?? './data',
+
+  // Se assente viene generato al primo avvio e stampato nei log.
+  adminToken: process.env.CRYLOG_ADMIN_TOKEN ?? null,
+
+  // Un Nursery Node considerato vivo deve farsi sentire entro offlineAfterMs.
+  // Tre battiti persi prima di dichiararlo offline: un falso allarme notturno
+  // costa piu' di qualche secondo di ritardo.
+  heartbeatIntervalMs: int('CRYLOG_HEARTBEAT_MS', 30_000),
+  offlineAfterMs: int('CRYLOG_OFFLINE_AFTER_MS', 90_000),
+  watchdogTickMs: int('CRYLOG_WATCHDOG_TICK_MS', 15_000),
+
+  pairingCodeTtlMs: int('CRYLOG_PAIRING_TTL_MS', 10 * 60_000),
 }
