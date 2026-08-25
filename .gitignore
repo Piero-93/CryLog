@@ -1,0 +1,34 @@
+# --- Segreti: mai nel repo ---
+# Permette di RICEVERE push. Fuori dal repo per non esporre project id e quota.
+google-services.json
+# Permette di INVIARE push: secret vero. Montata come volume Docker sull'Hub.
+*-service-account*.json
+hub/secrets/
+.env
+!tailscale.env.template
+
+# --- Android / Gradle ---
+*.iml
+.gradle/
+local.properties
+android-app/build/
+android-app/app/build/
+android-app/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+hub/data/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini

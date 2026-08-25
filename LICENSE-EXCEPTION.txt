@@ -1,0 +1,56 @@
+CryLog — Additional permission under GNU GPL version 3 section 7
+
+Copyright (C) 2026 Piero Biagini
+
+CryLog is licensed under the GNU General Public License version 3 or later, the
+full text of which is in the file LICENSE.
+
+In addition, as a special exception, the copyright holders grant the following
+additional permission under section 7 of that license:
+
+    If you modify this Program, or any covered work, by linking or combining it
+    with Google Play Services and the Firebase SDKs (or modified versions of
+    those libraries), the licensors of this Program grant you additional
+    permission to convey the resulting work.
+
+
+Why this exists
+---------------
+
+The Android app bundles firebase-messaging, a proprietary AAR, to receive push
+notifications when a Parent Node is unreachable over the tailnet. The GPL
+requires that the entire combined executable be conveyable under the GPL, and
+the copyright holders of CryLog hold no such rights over that blob.
+
+The "System Libraries" exception in GPLv3 section 1 does not cover this: it
+would at most apply to Google Play Services as a preinstalled component, not to
+a library deliberately added to the bundle.
+
+
+Scope
+-----
+
+This additional permission applies to the Android app in android-app/.
+
+The Hub in hub/ links no Google library — it speaks to FCM over plain HTTPS and
+signs its JWT with the Node standard library — and is therefore covered by the
+GNU GPL version 3 or later with no exception.
+
+A future "foss" build flavour replacing Firebase with UnifiedPush/ntfy would
+likewise require no exception.
+
+This permission addresses licensing only. It has no bearing on F-Droid, which
+rejects proprietary blobs in its builds as a matter of policy regardless of how
+they are licensed.
+
+
+Contributions
+-------------
+
+By contributing to CryLog you agree that your contribution is licensed under the
+GNU General Public License version 3 or later, together with the additional
+permission above.
+
+This matters more than it looks: once contributions from other copyright holders
+are merged, this permission can no longer be granted unilaterally — it would
+require the consent of every contributor.
