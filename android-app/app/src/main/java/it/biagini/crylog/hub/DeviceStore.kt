@@ -25,6 +25,7 @@
 package it.biagini.crylog.hub
 
 import android.content.Context
+import it.biagini.crylog.core.RmsNoiseDetector
 import it.biagini.crylog.core.Role
 
 /**
@@ -61,6 +62,35 @@ class DeviceStore(context: Context) {
     val isPaired: Boolean
         get() = !deviceToken.isNullOrBlank() && !hubUrl.isNullOrBlank() && role != null
 
+    // --- Rilevamento rumore (Nursery Node) ---
+
+    var noiseThresholdDb: Double
+        get() = prefs.getFloat(KEY_THRESHOLD, RmsNoiseDetector.DEFAULT_THRESHOLD_DB.toFloat()).toDouble()
+        set(value) = prefs.edit().putFloat(KEY_THRESHOLD, value.toFloat()).apply()
+
+    var noiseMinDurationMs: Long
+        get() = prefs.getLong(KEY_MIN_DURATION, RmsNoiseDetector.DEFAULT_MIN_DURATION_MS)
+        set(value) = prefs.edit().putLong(KEY_MIN_DURATION, value).apply()
+
+    var noiseCooldownMs: Long
+        get() = prefs.getLong(KEY_COOLDOWN, RmsNoiseDetector.DEFAULT_COOLDOWN_MS)
+        set(value) = prefs.edit().putLong(KEY_COOLDOWN, value).apply()
+
+    /** Se il Nursery Node deve riprendere il monitoraggio da solo dopo un riavvio. */
+    var armed: Boolean
+        get() = prefs.getBoolean(KEY_ARMED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ARMED, value).apply()
+
+    // --- Avvisi (Parent Node) ---
+
+    var flashOnAlert: Boolean
+        get() = prefs.getBoolean(KEY_FLASH, false)
+        set(value) = prefs.edit().putBoolean(KEY_FLASH, value).apply()
+
+    var vibrateOnAlert: Boolean
+        get() = prefs.getBoolean(KEY_VIBRATE, true)
+        set(value) = prefs.edit().putBoolean(KEY_VIBRATE, value).apply()
+
     /** Usato quando l'Hub rifiuta il token: l'unica via d'uscita è rifare il pairing. */
     fun clearPairing() {
         prefs.edit()
@@ -76,5 +106,11 @@ class DeviceStore(context: Context) {
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_TOKEN = "device_token"
         const val KEY_NAME = "device_name"
+        const val KEY_THRESHOLD = "noise_threshold_db"
+        const val KEY_MIN_DURATION = "noise_min_duration_ms"
+        const val KEY_COOLDOWN = "noise_cooldown_ms"
+        const val KEY_ARMED = "armed"
+        const val KEY_FLASH = "flash_on_alert"
+        const val KEY_VIBRATE = "vibrate_on_alert"
     }
 }

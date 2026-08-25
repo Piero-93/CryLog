@@ -49,11 +49,8 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     CryLogApp(
+                        viewModel = viewModel,
                         state = state,
-                        onSelectRole = viewModel::selectRole,
-                        onPair = viewModel::pair,
-                        onReconnect = viewModel::connect,
-                        onChangeRole = viewModel::changeRole,
                         modifier = Modifier.padding(innerPadding),
                     )
                 }

@@ -32,6 +32,8 @@ import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.Role
 import it.biagini.crylog.hub.DeviceStore
 import it.biagini.crylog.hub.HubClient
+import it.biagini.crylog.nursery.NoiseMonitorService
+import it.biagini.crylog.parent.Alerter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val store = DeviceStore(application)
     private val client = HubClient(viewModelScope)
+    private val alerter = Alerter(application, viewModelScope)
 
     private val _uiState = MutableStateFlow<UiState>(initialState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -79,6 +82,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             client.messages.collect { message ->
+                if (message is HubMessage.Noise) {
+                    alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+                }
                 _uiState.update { current ->
                     if (current !is UiState.Session) return@update current
                     current.copy(events = (listOf(message) + current.events).take(MAX_EVENTS))
@@ -86,7 +92,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        if (store.isPaired) connect()
+        // Con ruolo Nursery la connessione appartiene al servizio: aprirne una
+        // seconda qui significherebbe due sessioni per lo stesso dispositivo.
+        if (store.isPaired && store.role == Role.PARENT) connect()
     }
 
     private fun initialState(): UiState = when {
@@ -132,6 +140,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Nursery Node ---
+
+    val noiseThresholdDb: Double get() = store.noiseThresholdDb
+    val noiseMinDurationMs: Long get() = store.noiseMinDurationMs
+
+    fun arm() {
+        store.armed = true
+        NoiseMonitorService.start(getApplication())
+    }
+
+    fun disarm() {
+        store.armed = false
+        NoiseMonitorService.stop(getApplication())
+    }
+
+    /**
+     * Il rilevatore legge le soglie all'avvio, quindi cambiarle mentre il
+     * monitoraggio è attivo richiede di farlo ripartire.
+     */
+    fun setThreshold(db: Double) {
+        store.noiseThresholdDb = db
+        restartIfArmed()
+    }
+
+    fun setMinDuration(ms: Long) {
+        store.noiseMinDurationMs = ms
+        restartIfArmed()
+    }
+
+    val noiseCooldownMs: Long get() = store.noiseCooldownMs
+
+    fun setCooldown(ms: Long) {
+        store.noiseCooldownMs = ms
+        restartIfArmed()
+    }
+
+    private fun restartIfArmed() {
+        if (!store.armed) return
+        NoiseMonitorService.stop(getApplication())
+        NoiseMonitorService.start(getApplication())
+    }
+
+    // --- Parent Node ---
+
+    val vibrateOnAlert: Boolean get() = store.vibrateOnAlert
+    val flashOnAlert: Boolean get() = store.flashOnAlert
+
+    fun setVibrate(enabled: Boolean) { store.vibrateOnAlert = enabled }
+
+    fun setFlash(enabled: Boolean) { store.flashOnAlert = enabled }
+
+    /** Fa sentire al genitore com'è l'avviso, prima che serva davvero. */
+    fun testAlert() = alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+
     fun connect() {
         val url = store.hubUrl ?: return
         val token = store.deviceToken ?: return
@@ -141,16 +203,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() = client.disconnect()
 
     fun resetPairing() {
-        client.disconnect()
+        stopEverything()
         store.clearPairing()
         _uiState.value = UiState.Pairing(store.role ?: Role.PARENT, store.hubUrl.orEmpty())
     }
 
     fun changeRole() {
-        client.disconnect()
+        stopEverything()
         store.clearPairing()
         store.role = null
         _uiState.value = UiState.ChoosingRole
+    }
+
+    /**
+     * Il servizio sopravvive alla UI per costruzione, quindi va fermato
+     * esplicitamente: senza questo resterebbe ad ascoltare con il microfono
+     * acceso per un dispositivo che l'app considera ormai scollegato.
+     */
+    private fun stopEverything() {
+        disarm()
+        client.disconnect()
     }
 
     override fun onCleared() {

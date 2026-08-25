@@ -27,6 +27,7 @@ package it.biagini.crylog.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import it.biagini.crylog.MainViewModel
 import it.biagini.crylog.UiState
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
@@ -64,24 +67,36 @@ import it.biagini.crylog.core.Role
 
 @Composable
 fun CryLogApp(
+    viewModel: MainViewModel,
     state: UiState,
-    onSelectRole: (Role) -> Unit,
-    onPair: (hubUrl: String, code: String, name: String) -> Unit,
-    onReconnect: () -> Unit,
-    onChangeRole: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
-        is UiState.ChoosingRole -> RoleSelection(onSelectRole, modifier)
+        is UiState.ChoosingRole -> RoleSelection(viewModel::selectRole, modifier)
 
         is UiState.Pairing -> {
             // Senza questo il tasto indietro chiuderebbe l'app: le schermate sono
             // stati del ViewModel, non destinazioni di navigazione.
-            BackHandler(enabled = !state.inProgress) { onChangeRole() }
-            PairingForm(state, onPair, onChangeRole, modifier)
+            BackHandler(enabled = !state.inProgress) { viewModel.changeRole() }
+            PairingForm(state, viewModel::pair, viewModel::changeRole, modifier)
         }
 
-        is UiState.Session -> SessionScreen(state, onReconnect, onChangeRole, modifier)
+        is UiState.Session -> when (state.role) {
+            Role.NURSERY -> NurseryScreen(
+                viewModel = viewModel,
+                deviceName = state.deviceName,
+                onUnpair = viewModel::changeRole,
+                modifier = modifier,
+            )
+
+            Role.PARENT -> SessionScreen(
+                viewModel = viewModel,
+                state = state,
+                onReconnect = viewModel::connect,
+                onChangeRole = viewModel::changeRole,
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -213,12 +228,15 @@ private fun pairingError(code: String): String = when (code) {
 
 @Composable
 private fun SessionScreen(
+    viewModel: MainViewModel,
     state: UiState.Session,
     onReconnect: () -> Unit,
     onChangeRole: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var confirmingUnpair by rememberSaveable { mutableStateOf(false) }
+    var vibrate by rememberSaveable { mutableStateOf(viewModel.vibrateOnAlert) }
+    var flash by rememberSaveable { mutableStateOf(viewModel.flashOnAlert) }
 
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
@@ -231,6 +249,40 @@ private fun SessionScreen(
         Text(state.deviceName, style = MaterialTheme.typography.bodyLarge)
 
         ConnectionBanner(state.connection, onReconnect)
+
+        HorizontalDivider()
+
+        Text("Avvisi", style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Vibrazione", style = MaterialTheme.typography.bodyMedium)
+            Switch(
+                checked = vibrate,
+                onCheckedChange = { vibrate = it; viewModel.setVibrate(it) },
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Lampeggio del flash", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Utile a telefono silenzioso o a faccia in giù",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = flash,
+                onCheckedChange = { flash = it; viewModel.setFlash(it) },
+            )
+        }
+        OutlinedButton(onClick = viewModel::testAlert) { Text("Prova l'avviso") }
 
         HorizontalDivider()
 

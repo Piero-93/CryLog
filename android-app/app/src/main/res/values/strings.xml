@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CryLog</string>
+
+    <string name="channel_monitoring">Monitoraggio</string>
+    <string name="channel_monitoring_description">Notifica sempre presente mentre il Nursery Node ascolta</string>
+    <string name="monitoring_title">CryLog è in ascolto</string>
+    <string name="monitoring_text">Il microfono resta attivo anche a schermo spento</string>
+    <string name="monitoring_stop">Interrompi</string>
+
+    <string name="channel_alert">Avvisi di rumore</string>
+    <string name="channel_alert_description">Notifica quando il Nursery Node sente un rumore</string>
 </resources>

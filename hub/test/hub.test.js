@@ -218,3 +218,22 @@ test('il registro dispositivi mostra chi e online', async () => {
 
   ws.close()
 })
+
+test('un dispositivo gia accoppiato puo invitarne un altro', async () => {
+  // Senza questo, aggiungere un telefono richiederebbe un terminale e l'admin
+  // token: impossibile proprio nel momento in cui serve, lontano da casa.
+  const parent = await pair('parent', 'Telefono di casa')
+
+  const invite = await api('/pairing-codes', { method: 'POST', token: parent.token })
+  assert.equal(invite.status, 201)
+
+  const invited = await api('/pair', {
+    method: 'POST',
+    body: { code: invite.body.code, role: 'nursery', name: 'Cameretta' },
+  })
+  assert.equal(invited.status, 201, 'il codice prodotto deve funzionare davvero')
+})
+
+test('un token inventato non puo invitare nessuno', async () => {
+  assert.equal((await api('/pairing-codes', { method: 'POST', token: 'inventato' })).status, 401)
+})

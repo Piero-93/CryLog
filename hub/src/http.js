@@ -25,6 +25,7 @@ import {
   normalizePairingCode,
 } from './pairing.js'
 import { ROLES } from './protocol.js'
+import { PAIRING_PAGE } from './ui.js'
 
 const MAX_BODY_BYTES = 8 * 1024
 
@@ -81,6 +82,12 @@ export function createHttpHandler({ db, config, adminToken, registry, startedAt,
     const path = url.pathname
     const method = req.method
 
+    if (method === 'GET' && (path === '/' || path === '/index.html')) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      res.end(PAIRING_PAGE)
+      return
+    }
+
     if (method === 'GET' && path === '/health') {
       return send(res, 200, {
         status: 'ok',
@@ -91,7 +98,10 @@ export function createHttpHandler({ db, config, adminToken, registry, startedAt,
     }
 
     if (method === 'POST' && path === '/pairing-codes') {
-      if (!isAdmin(req)) return send(res, 401, { error: 'unauthorized' })
+      // Anche un dispositivo gia' accoppiato puo' invitarne un altro: altrimenti
+      // aggiungere un telefono richiederebbe un terminale e l'admin token, cosa
+      // impossibile proprio quando serve, cioe' lontano da casa.
+      if (!isAdmin(req) && !requireDevice(req)) return send(res, 401, { error: 'unauthorized' })
       const code = generatePairingCode()
       const createdAt = now()
       const expiresAt = createdAt + config.pairingCodeTtlMs
