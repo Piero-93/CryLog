@@ -3,43 +3,43 @@
     <string name="app_name">CryLog</string>
 
     <string name="channel_monitoring">Monitoraggio</string>
-    <string name="channel_monitoring_description">Notifica sempre presente mentre il Nursery Node ascolta</string>
-    <string name="monitoring_title">CryLog è in ascolto</string>
-    <string name="monitoring_text">Il microfono resta attivo anche a schermo spento</string>
+    <string name="channel_monitoring_description">Resta visibile mentre il monitoraggio è attivo</string>
+    <string name="monitoring_title">Monitoraggio attivo</string>
+    <string name="monitoring_text">Il microfono resta acceso a schermo spento</string>
     <string name="monitoring_stop">Interrompi</string>
 
     <string name="channel_listening">Ascolto continuo</string>
-    <string name="channel_listening_description">Notifica sempre presente mentre l’ascolto continuo è acceso</string>
+    <string name="channel_listening_description">Resta visibile mentre l’ascolto continuo è attivo</string>
     <string name="listening_title">Ascolto continuo</string>
     <string name="listening_title_room">In ascolto da %1$s</string>
-    <string name="listening_starting">Apertura della sessione…</string>
-    <string name="listening_ok">L’audio dalla cameretta sta arrivando</string>
-    <string name="listening_recovering">Audio fermo: sto riprovando</string>
-    <string name="listening_lost">Audio perso: controlla il Nursery Node</string>
-    <string name="listening_paused">In pausa: un’altra app sta usando l’audio</string>
+    <string name="listening_starting">Connessione…</string>
+    <string name="listening_ok">Audio in arrivo</string>
+    <string name="listening_recovering">Riconnessione…</string>
+    <string name="listening_lost">Audio interrotto. Controlla il Nursery Node.</string>
+    <string name="listening_paused">In pausa, un’altra app sta usando l’audio</string>
 
-    <string name="listening_gone">Il Nursery Node non è collegato: nessuno sta sorvegliando</string>
+    <string name="listening_gone">Nursery Node scollegato</string>
     <string name="listening_silence">Silenzia</string>
 
     <string name="alert_seen">Va bene</string>
 
     <string name="channel_alert">Avvisi di rumore</string>
-    <string name="channel_alert_description">Notifica quando il Nursery Node sente un rumore</string>
+    <string name="channel_alert_description">Quando il Nursery Node sente un rumore</string>
     <string name="alert_title">Rumore rilevato</string>
-    <string name="alert_text">Apri CryLog per i dettagli</string>
+    <string name="alert_text">Tocca per aprire</string>
 
-    <string name="gone_title">Nessuno sta sorvegliando</string>
-    <string name="gone_text_timeout">Il Nursery Node non risponde più. Controlla che sia acceso e collegato alla rete.</string>
-    <string name="gone_text_disconnected">Il Nursery Node si è scollegato. La sorveglianza è ferma.</string>
+    <string name="gone_title">Monitoraggio fermo</string>
+    <string name="gone_text_timeout">Il Nursery Node non risponde. Controlla che sia acceso e connesso.</string>
+    <string name="gone_text_disconnected">Il Nursery Node si è scollegato.</string>
 
-    <string name="channel_status">Stato della sorveglianza</string>
-    <string name="channel_status_description">Mostra chi sta sorvegliando e da quanto tempo</string>
-    <string name="watching_title">%1$s sta sorvegliando</string>
-    <string name="watching_text">CryLog riceve gli avvisi da questo Nursery Node</string>
+    <string name="channel_status">Stato del monitoraggio</string>
+    <string name="channel_status_description">Chi sta monitorando, e da quando</string>
+    <string name="watching_title">%1$s sta monitorando</string>
+    <string name="watching_text">Ricevi gli avvisi da questo Nursery Node</string>
 
     <string name="channel_stopped">Monitoraggio interrotto</string>
-    <string name="channel_stopped_description">Avvisa quando la sorveglianza si è fermata senza che tu lo abbia chiesto</string>
-    <string name="stopped_title">CryLog non sta sorvegliando</string>
-    <string name="stopped_text_reboot">Il telefono si è riavviato. Tocca per riprendere l’ascolto.</string>
-    <string name="stopped_text_interrupted">La sorveglianza si è interrotta. Tocca per riprenderla.</string>
+    <string name="channel_stopped_description">Quando il monitoraggio si ferma da solo</string>
+    <string name="stopped_title">Monitoraggio fermo</string>
+    <string name="stopped_text_reboot">Il telefono si è riavviato. Tocca per riprendere.</string>
+    <string name="stopped_text_interrupted">Il monitoraggio si è fermato. Tocca per riprendere.</string>
 </resources>

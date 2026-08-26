@@ -152,17 +152,17 @@ private fun RoleSelection(
 
         RoleCard(
             title = "Nursery Node",
-            description = "Sta nella cameretta. Ascolta e avvisa quando sente un rumore.",
+            description = "Resta nella cameretta e avvisa quando sente un rumore.",
             onClick = { onSelectRole(Role.NURSERY) },
         )
         RoleCard(
             title = "Parent Node",
-            description = "Sta con te. Riceve le notifiche e potrà aprire lo stream.",
+            description = "Resta con te e riceve gli avvisi.",
             onClick = { onSelectRole(Role.PARENT) },
         )
 
         Text(
-            "Si può cambiare in seguito, rifacendo il pairing.",
+            "Si può cambiare quando vuoi.",
             style = MaterialTheme.typography.bodySmall,
         )
 
@@ -193,19 +193,19 @@ private fun RoleChangeForm(
     ) {
         Text("Cambia ruolo", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Il dispositivo resta accoppiato: non serve un codice nuovo.",
+            "Il dispositivo resta accoppiato, non serve un codice nuovo.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         RoleCard(
             title = "Nursery Node",
-            description = "Sta nella cameretta. Ascolta e avvisa quando sente un rumore.",
+            description = "Resta nella cameretta e avvisa quando sente un rumore.",
             onClick = { role = Role.NURSERY; name = "Cameretta" },
         )
         RoleCard(
             title = "Parent Node",
-            description = "Sta con te. Riceve le notifiche e può aprire lo stream.",
+            description = "Resta con te e riceve gli avvisi.",
             onClick = { role = Role.PARENT; name = "Telefono" },
         )
 
@@ -266,7 +266,7 @@ private fun HubSetupForm(
     ) {
         Text("CryLog", style = MaterialTheme.typography.headlineLarge)
         Text(
-            "Dove si trova il tuo Hub?",
+            "Indirizzo del tuo Hub",
             style = MaterialTheme.typography.bodyLarge,
         )
 
@@ -281,7 +281,7 @@ private fun HubSetupForm(
         )
 
         Text(
-            "Si chiede una volta sola: vale per questo telefono, qualunque ruolo gli darai.",
+            "Serve una volta sola, poi vale per questo telefono.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -341,7 +341,7 @@ private fun PairingForm(
         Text("Codice di pairing", style = MaterialTheme.typography.bodyMedium)
         PairingCodeField(value = code, onValueChange = { code = it })
         Text(
-            "otto caratteri, generati dall'Hub",
+            "Otto caratteri, li generi dall'Hub",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -384,12 +384,12 @@ private fun PairingForm(
 /** L'Hub risponde con codici sintetici: qui diventano qualcosa di azionabile. */
 private fun pairingError(code: String): String = when (code) {
     "unknown_code" -> "Codice non riconosciuto. Controlla di averlo copiato bene."
-    "already_used" -> "Codice già usato. Ogni codice vale per un solo dispositivo: generane un altro."
-    "expired" -> "Codice scaduto. I codici durano dieci minuti: generane uno nuovo."
-    "invalid_code_format" -> "Il codice deve essere di otto caratteri."
+    "already_used" -> "Codice già usato. Generane un altro dall'Hub."
+    "expired" -> "Codice scaduto. Generane uno nuovo dall'Hub."
+    "invalid_code_format" -> "Il codice è di otto caratteri."
     "invalid_name" -> "Il nome non può essere vuoto."
     "invalid_role" -> "Ruolo non riconosciuto dall'Hub."
-    "unauthorized" -> "L'Hub non riconosce questo dispositivo. Prova a scollegarlo e rifare il pairing."
+    "unauthorized" -> "L'Hub non riconosce questo dispositivo. Scollegalo e rifai il pairing."
     else -> "Pairing fallito: $code"
 }
 
@@ -505,11 +505,10 @@ private fun SessionScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Insisti finché non lo vedo", style = MaterialTheme.typography.bodyMedium)
+                Text("Ripeti finché non lo vedo", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "L'avviso si ripete ogni tre secondi finché non scarti la notifica, " +
-                        "al massimo per cinque minuti. Un solo impulso alle quattro del " +
-                        "mattino non lo sente nessuno.",
+                    "L'avviso si ripete ogni tre secondi finché non scarti la notifica. " +
+                        "Si ferma comunque dopo cinque minuti.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -553,8 +552,8 @@ private fun SessionScreen(
             title = { Text("Scollegare il dispositivo?") },
             text = {
                 Text(
-                    "Il token viene cancellato e servirà un nuovo codice di pairing " +
-                        "dall'Hub per ricollegarsi.",
+                    "Il dispositivo viene cancellato dall'Hub. Per ricollegarlo servirà " +
+                        "un nuovo codice.",
                 )
             },
             confirmButton = {
@@ -592,7 +591,7 @@ private fun ListenCard(
     if (nurseryName == null) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Text(
-                "Nessun Nursery Node in ascolto: non c'è nulla da sentire.",
+                "Nessun Nursery Node collegato.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -616,7 +615,7 @@ private fun ListenCard(
                 TransportState.Idle -> {
                     Text("Ascolta $nurseryName", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Apre l'audio dal vivo dalla cameretta.",
+                        "Audio dal vivo dalla cameretta.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -629,8 +628,8 @@ private fun ListenCard(
                         Column(Modifier.weight(1f)) {
                             Text("Anche il video", style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "Accende la fotocamera in cameretta. Al buio non si vede " +
-                                    "granché e consuma parecchia batteria.",
+                                "Accende la fotocamera. Al buio si vede poco " +
+                                    "e consuma batteria.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -646,8 +645,8 @@ private fun ListenCard(
                         Column(Modifier.weight(1f)) {
                             Text("Poter rispondere", style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "Aggiunge un pulsante per farti sentire in cameretta. " +
-                                    "Va deciso adesso: dopo servirebbe riaprire l ascolto.",
+                                "Aggiunge il pulsante per parlare. " +
+                                    "Va scelto ora, dopo serve riaprire l'ascolto.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -661,7 +660,7 @@ private fun ListenCard(
                 }
 
                 TransportState.Connecting -> {
-                    Text("Connessione in corso...", style = MaterialTheme.typography.titleMedium)
+                    Text("Connessione…", style = MaterialTheme.typography.titleMedium)
                     OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
                         Text("Annulla")
                     }
@@ -677,7 +676,7 @@ private fun ListenCard(
                         // Avevi chiesto il video e non è arrivato: il Nursery
                         // Node è in modalità solo audio o non ha fotocamera.
                         Text(
-                            "Il Nursery Node sta trasmettendo solo audio.",
+                            "Il Nursery Node trasmette solo audio.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -690,7 +689,7 @@ private fun ListenCard(
                     // che non porta nulla: due situazioni identiche all'orecchio.
                     LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
                     Text(
-                        "Livello ricevuto: %.0f dBFS".format(level),
+                        "Livello: %.0f dBFS".format(level),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -718,7 +717,7 @@ private fun ListenCard(
                 }
 
                 is TransportState.Failed -> {
-                    Text("Ascolto non riuscito", style = MaterialTheme.typography.titleMedium)
+                    Text("Connessione non riuscita", style = MaterialTheme.typography.titleMedium)
                     Text(stream.reason, style = MaterialTheme.typography.bodySmall)
                     Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
                         Text("Riprova")
@@ -762,8 +761,8 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
                 Column(Modifier.weight(1f)) {
                     Text("Ascolto continuo", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "L'audio resta aperto a schermo spento e con l'app chiusa. " +
-                            "Tieni il telefono in carica: una notte intera non sta in una batteria.",
+                        "Resta acceso a schermo spento e con l'app chiusa. " +
+                            "Tieni il telefono in carica.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -775,13 +774,13 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
 
             Text(
                 when (health) {
-                    ContinuousListening.Health.STARTING -> "Apertura della sessione…"
-                    ContinuousListening.Health.LISTENING -> "L'audio dalla cameretta sta arrivando"
-                    ContinuousListening.Health.RECOVERING -> "Audio fermo: sto riprovando"
-                    ContinuousListening.Health.LOST -> "Audio perso: controlla il Nursery Node"
-                    ContinuousListening.Health.PAUSED -> "In pausa: un'altra app sta usando l'audio"
+                    ContinuousListening.Health.STARTING -> "Connessione…"
+                    ContinuousListening.Health.LISTENING -> "Audio in arrivo"
+                    ContinuousListening.Health.RECOVERING -> "Riconnessione…"
+                    ContinuousListening.Health.LOST -> "Audio interrotto. Controlla il Nursery Node."
+                    ContinuousListening.Health.PAUSED -> "In pausa, un'altra app sta usando l'audio"
                     ContinuousListening.Health.NURSERY_GONE ->
-                        "Il Nursery Node non è collegato: nessuno sta sorvegliando"
+                        "Nursery Node scollegato"
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -796,7 +795,7 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
                     }
                 }
                 Text(
-                    "Acceso da ${elapsedSince(since, now)}",
+                    "Attivo da ${elapsedSince(since, now)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -820,7 +819,7 @@ private fun elapsedSince(startedAt: Long, now: Long): String {
 private fun ConnectionBanner(connection: ConnectionState, onReconnect: () -> Unit) {
     val (label, showRetry) = when (connection) {
         ConnectionState.Connected -> "Connesso all'Hub" to false
-        ConnectionState.Connecting -> "Connessione in corso..." to false
+        ConnectionState.Connecting -> "Connessione…" to false
         ConnectionState.Disconnected -> "Non connesso" to true
         is ConnectionState.Failed -> "Connessione fallita: ${connection.reason}" to true
     }

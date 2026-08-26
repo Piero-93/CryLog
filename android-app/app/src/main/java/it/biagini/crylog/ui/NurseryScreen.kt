@@ -155,7 +155,7 @@ fun NurseryScreen(
             )
             Text(
                 if (eventCount == 0) {
-                    "Nessun rumore rilevato finora."
+                    "Ancora nessun rumore."
                 } else {
                     "Rumori rilevati in questa sessione: $eventCount"
                 },
@@ -187,7 +187,7 @@ fun NurseryScreen(
         PresetSelector(
             title = "Ignora i rumori brevi",
             description = "Quanto a lungo deve durare un rumore per contare. " +
-                "Alza se una porta che sbatte fa scattare l'avviso.",
+                "Alzala se una porta che sbatte fa scattare l'avviso.",
             presets = MIN_DURATION_PRESETS,
             selectedMs = minDuration,
             onSelect = { minDuration = it; viewModel.setMinDuration(it) },
@@ -201,7 +201,7 @@ fun NurseryScreen(
             Column(Modifier.weight(1f)) {
                 Text("Solo audio", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "La fotocamera non si accende mai, qualunque cosa chiedano i Parent Node.",
+                    "La fotocamera non si accende mai, qualunque cosa chieda un Parent Node.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -249,7 +249,7 @@ fun NurseryScreen(
         if (permissionDenied) {
             Text(
                 "Senza accesso al microfono il monitoraggio non può funzionare. " +
-                    "Concedilo dalle impostazioni di sistema dell'app.",
+                    "Concedilo dalle impostazioni dell'app.",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -280,8 +280,8 @@ fun NurseryScreen(
             title = { Text("Scollegare il dispositivo?") },
             text = {
                 Text(
-                    "Il monitoraggio si interrompe, il token viene cancellato e servirà " +
-                        "un nuovo codice di pairing dall'Hub per ricollegarsi.",
+                    "Il monitoraggio si ferma e il dispositivo viene cancellato dall'Hub. " +
+                        "Per ricollegarlo servirà un nuovo codice.",
                 )
             },
             confirmButton = {
@@ -305,7 +305,7 @@ private fun StatusCard(armed: Boolean, connection: ConnectionState) {
         connection is ConnectionState.Connected ->
             "In ascolto, collegato all'Hub" to MaterialTheme.colorScheme.secondaryContainer
         connection is ConnectionState.Connecting ->
-            "In ascolto, connessione in corso..." to MaterialTheme.colorScheme.surfaceVariant
+            "In ascolto, connessione…" to MaterialTheme.colorScheme.surfaceVariant
         else ->
             "In ascolto, ma senza Hub: gli avvisi non partono" to MaterialTheme.colorScheme.errorContainer
     }
