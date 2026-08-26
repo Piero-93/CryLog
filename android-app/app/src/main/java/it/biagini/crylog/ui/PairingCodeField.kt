@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LocalTextStyle
@@ -46,10 +48,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import it.biagini.crylog.core.PairingCode
@@ -66,11 +72,28 @@ fun PairingCodeField(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    // Il campo tiene anche la posizione del cursore, non solo i caratteri:
+    // serve a poter toccare una cifra sbagliata e correggere quella, invece di
+    // cancellare tutto quello che viene dopo.
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (field.text != value) {
+        field = TextFieldValue(value, TextRange(value.length.coerceAtMost(value.length)))
+    }
 
     BasicTextField(
-        value = value,
-        onValueChange = { onValueChange(PairingCode.sanitize(it)) },
-        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        value = field,
+        onValueChange = { updated ->
+            val clean = PairingCode.sanitize(updated.text)
+            val caret = updated.selection.end.coerceIn(0, clean.length)
+            field = TextFieldValue(clean, TextRange(caret))
+            onValueChange(clean)
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused },
         textStyle = LocalTextStyle.current.copy(color = androidx.compose.ui.graphics.Color.Transparent),
         cursorBrush = SolidColor(androidx.compose.ui.graphics.Color.Transparent),
         singleLine = true,
@@ -93,7 +116,16 @@ fun PairingCodeField(
                     CodeCell(
                         char = value.getOrNull(index),
                         // La casella attiva è quella dove finirà il prossimo carattere.
-                        highlighted = focused && index == value.length.coerceAtMost(PairingCode.LENGTH - 1),
+                        highlighted = focused &&
+                            index == field.selection.end.coerceAtMost(PairingCode.LENGTH - 1),
+                        onClick = {
+                            // Toccando una cifra la si seleziona: il carattere
+                            // successivo digitato prende il suo posto, invece di
+                            // infilarsi in coda.
+                            val end = (index + 1).coerceAtMost(value.length)
+                            field = TextFieldValue(value, TextRange(index.coerceAtMost(value.length), end))
+                            focusRequester.requestFocus()
+                        },
                     )
                 }
             }
@@ -102,7 +134,7 @@ fun PairingCodeField(
 }
 
 @Composable
-private fun CodeCell(char: Char?, highlighted: Boolean) {
+private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
     val borderColor = when {
         highlighted -> MaterialTheme.colorScheme.primary
         char != null -> MaterialTheme.colorScheme.outline
@@ -113,6 +145,13 @@ private fun CodeCell(char: Char?, highlighted: Boolean) {
         modifier = Modifier
             .width(36.dp)
             .height(48.dp)
+            // Senza indicazione visiva del tocco: la casella ha gia' il suo
+            // bordo che si accende, e un'onda sopra sarebbe rumore.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
             .border(
                 width = if (highlighted) 2.dp else 1.dp,

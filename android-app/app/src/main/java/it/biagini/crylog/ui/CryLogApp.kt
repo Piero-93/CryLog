@@ -44,13 +44,23 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
+import it.biagini.crylog.R
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -144,10 +154,11 @@ private fun RoleSelection(
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        Text("CryLog", style = MaterialTheme.typography.headlineLarge)
+        AppHeader(title = "CryLog", subtitle = "", connection = null)
+
         Text(
             "Che ruolo ha questo telefono?",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
         )
 
         RoleCard(
@@ -191,7 +202,8 @@ private fun RoleChangeForm(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Cambia ruolo", style = MaterialTheme.typography.headlineMedium)
+        AppHeader(title = "Cambia ruolo", subtitle = state.name, connection = null)
+
         Text(
             "Il dispositivo resta accoppiato, non serve un codice nuovo.",
             style = MaterialTheme.typography.bodyMedium,
@@ -202,16 +214,13 @@ private fun RoleChangeForm(
             title = "Nursery Node",
             description = "Resta nella cameretta e avvisa quando sente un rumore.",
             onClick = { role = Role.NURSERY; name = "Cameretta" },
+            selected = role == Role.NURSERY,
         )
         RoleCard(
             title = "Parent Node",
             description = "Resta con te e riceve gli avvisi.",
             onClick = { role = Role.PARENT; name = "Telefono" },
-        )
-
-        Text(
-            "Scelto: ${if (role == Role.NURSERY) "Nursery Node" else "Parent Node"}",
-            style = MaterialTheme.typography.bodyMedium,
+            selected = role == Role.PARENT,
         )
 
         OutlinedTextField(
@@ -264,10 +273,11 @@ private fun HubSetupForm(
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        Text("CryLog", style = MaterialTheme.typography.headlineLarge)
+        AppHeader(title = "CryLog", subtitle = "", connection = null)
+
         Text(
             "Indirizzo del tuo Hub",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
         )
 
         OutlinedTextField(
@@ -297,15 +307,41 @@ private fun HubSetupForm(
 }
 
 @Composable
-private fun RoleCard(title: String, description: String, onClick: () -> Unit) {
+private fun RoleCard(
+    title: String,
+    description: String,
+    onClick: () -> Unit,
+    selected: Boolean? = null,
+) {
+    // Quando c'e' una scelta in corso la carta la mostra da se': un pallino
+    // acceso e il colore che cambia dicono in un colpo d'occhio quello che una
+    // riga "Scelto: ..." sotto costringeva a leggere.
+    val chosen = selected == true
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (chosen) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+        border = if (chosen) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            Text(description, style = MaterialTheme.typography.bodyMedium)
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (selected != null) {
+                RadioButton(selected = chosen, onClick = onClick)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(description, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
@@ -327,16 +363,13 @@ private fun PairingForm(
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Collega all'Hub", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Ruolo scelto: ${if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node"}",
-            style = MaterialTheme.typography.bodyMedium,
+        AppHeader(
+            title = if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
+            subtitle = state.hubUrl,
+            connection = null,
         )
-        Text(
-            state.hubUrl,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+
+        Text("Collega all'Hub", style = MaterialTheme.typography.titleMedium)
 
         Text("Codice di pairing", style = MaterialTheme.typography.bodyMedium)
         PairingCodeField(value = code, onValueChange = { code = it })
@@ -430,13 +463,20 @@ private fun SessionScreen(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
-            style = MaterialTheme.typography.headlineMedium,
+        AppHeader(
+            title = if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
+            subtitle = state.deviceName,
+            connection = state.connection,
         )
-        Text(state.deviceName, style = MaterialTheme.typography.bodyLarge)
 
-        ConnectionBanner(state.connection, onReconnect)
+        DndAccessCard()
+
+        // Il banner compare solo quando c'e' qualcosa da fare: a connessione
+        // buona lo stato lo dice gia' il pallino della testata, e una card che
+        // ripete "tutto bene" ruba spazio a quello che serve davvero.
+        if (state.connection !is ConnectionState.Connected) {
+            ConnectionBanner(state.connection, onReconnect)
+        }
 
         ContinuousCard(
             enabled = continuous,
@@ -815,22 +855,88 @@ private fun elapsedSince(startedAt: Long, now: Long): String {
     return "${minutes / 60} h ${minutes % 60} min"
 }
 
+/**
+ * Chi e' questo telefono, e come sta, in una riga sola.
+ *
+ * Prima erano due testi alti impilati piu' una card di stato: tre blocchi per
+ * dire un nome e un pallino, su una schermata che gia' non ci stava in altezza.
+ */
+@Composable
+fun AppHeader(title: String, subtitle: String, connection: ConnectionState?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_art),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)),
+        )
+
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (connection != null) ConnectionDot(connection)
+    }
+}
+
+/** Lo stato dell'Hub ridotto a quello che serve sapere di sfuggita. */
+@Composable
+private fun ConnectionDot(connection: ConnectionState) {
+    val (label, container, content) = when (connection) {
+        ConnectionState.Connected -> Triple(
+            "Connesso",
+            MaterialTheme.colorScheme.tertiaryContainer,
+            MaterialTheme.colorScheme.onTertiaryContainer,
+        )
+        ConnectionState.Connecting -> Triple(
+            "Connessione…",
+            MaterialTheme.colorScheme.secondaryContainer,
+            MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        else -> Triple(
+            "Offline",
+            MaterialTheme.colorScheme.errorContainer,
+            MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+
+    Surface(color = container, shape = RoundedCornerShape(8.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = content,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
+}
+
 @Composable
 private fun ConnectionBanner(connection: ConnectionState, onReconnect: () -> Unit) {
     val (label, showRetry) = when (connection) {
         ConnectionState.Connected -> "Connesso all'Hub" to false
-        ConnectionState.Connecting -> "Connessione…" to false
-        ConnectionState.Disconnected -> "Non connesso" to true
-        is ConnectionState.Failed -> "Connessione fallita: ${connection.reason}" to true
+        ConnectionState.Connecting -> "Connessione all'Hub in corso…" to false
+        ConnectionState.Disconnected -> "Non connesso all'Hub" to true
+        is ConnectionState.Failed -> "Hub non raggiungibile: ${connection.reason}" to true
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (connection is ConnectionState.Connected) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.errorContainer
+            containerColor = when (connection) {
+                ConnectionState.Connected -> MaterialTheme.colorScheme.tertiaryContainer
+                ConnectionState.Connecting -> MaterialTheme.colorScheme.secondaryContainer
+                else -> MaterialTheme.colorScheme.errorContainer
             },
         ),
     ) {

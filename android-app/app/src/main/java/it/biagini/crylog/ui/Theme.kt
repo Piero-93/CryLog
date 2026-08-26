@@ -24,28 +24,96 @@
 
 package it.biagini.crylog.ui
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+
+/**
+ * La palette di CryLog, costruita sull'indigo dell'icona.
+ *
+ * Niente colori dinamici, che pure sarebbero gratis su Android 12 e piacciono.
+ * In questa app il colore porta informazione: rosso vuol dire che nessuno sta
+ * ascoltando, e il contenitore acceso vuol dire che l'audio arriva. Presi dallo
+ * sfondo del telefono quei significati cambiano da dispositivo a dispositivo, e
+ * uno stato che non si riconosce a colpo d'occhio non serve a niente.
+ */
+private val Brand = Color(0xFF1C2B4C)
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF2E4A7D),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD8E2FF),
+    onPrimaryContainer = Color(0xFF001A41),
+
+    secondary = Color(0xFF565E71),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDAE2F9),
+    onSecondaryContainer = Color(0xFF131C2B),
+
+    tertiary = Color(0xFF3C6A4B),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFBEF0C9),
+    onTertiaryContainer = Color(0xFF00210E),
+
+    error = Color(0xFFBA1A1A),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+
+    background = Color(0xFFFDFBFF),
+    onBackground = Color(0xFF1A1B1F),
+    surface = Color(0xFFFDFBFF),
+    onSurface = Color(0xFF1A1B1F),
+    surfaceVariant = Color(0xFFE1E2EC),
+    onSurfaceVariant = Color(0xFF44474F),
+
+    outline = Color(0xFF74777F),
+    outlineVariant = Color(0xFFC4C6D0),
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFFAEC6FF),
+    onPrimary = Color(0xFF002E69),
+    // Il colore dell'icona, al suo posto: al buio è il fondo di ciò che conta.
+    primaryContainer = Brand,
+    onPrimaryContainer = Color(0xFFD8E2FF),
+
+    secondary = Color(0xFFBEC6DC),
+    onSecondary = Color(0xFF283041),
+    secondaryContainer = Color(0xFF3E4759),
+    onSecondaryContainer = Color(0xFFDAE2F9),
+
+    tertiary = Color(0xFFA3D4AE),
+    onTertiary = Color(0xFF0A3921),
+    tertiaryContainer = Color(0xFF245136),
+    onTertiaryContainer = Color(0xFFBEF0C9),
+
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+
+    background = Color(0xFF121318),
+    onBackground = Color(0xFFE3E2E6),
+    surface = Color(0xFF121318),
+    onSurface = Color(0xFFE3E2E6),
+    surfaceVariant = Color(0xFF44474F),
+    onSurfaceVariant = Color(0xFFC4C6D0),
+
+    outline = Color(0xFF8E9099),
+    outlineVariant = Color(0xFF44474F),
+)
 
 @Composable
 fun CryLogTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val colorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        darkTheme -> darkColorScheme()
-        else -> lightColorScheme()
-    }
-
-    MaterialTheme(colorScheme = colorScheme, content = content)
+    MaterialTheme(
+        colorScheme = if (darkTheme) DarkColors else LightColors,
+        content = content,
+    )
 }

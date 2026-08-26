@@ -131,8 +131,9 @@ fun NurseryScreen(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Nursery Node", style = MaterialTheme.typography.headlineMedium)
-        Text(deviceName, style = MaterialTheme.typography.bodyLarge)
+        AppHeader(title = "Nursery Node", subtitle = deviceName, connection = connection)
+
+        DndAccessCard()
 
         StatusCard(armed = armed, connection = connection)
 
@@ -300,12 +301,15 @@ fun NurseryScreen(
 
 @Composable
 private fun StatusCard(armed: Boolean, connection: ConnectionState) {
+    // Verde solo quando il monitoraggio funziona davvero: in ascolto e con
+    // l'Hub raggiungibile. In ascolto senza Hub non e' uno stato tranquillo,
+    // e' un microfono acceso i cui avvisi non arrivano da nessuna parte.
     val (text, container) = when {
         !armed -> "Non sta ascoltando" to MaterialTheme.colorScheme.surfaceVariant
         connection is ConnectionState.Connected ->
-            "In ascolto, collegato all'Hub" to MaterialTheme.colorScheme.secondaryContainer
+            "In ascolto" to MaterialTheme.colorScheme.tertiaryContainer
         connection is ConnectionState.Connecting ->
-            "In ascolto, connessione…" to MaterialTheme.colorScheme.surfaceVariant
+            "In ascolto, connessione all'Hub…" to MaterialTheme.colorScheme.secondaryContainer
         else ->
             "In ascolto, ma senza Hub: gli avvisi non partono" to MaterialTheme.colorScheme.errorContainer
     }
