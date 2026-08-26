@@ -64,6 +64,18 @@ object NoiseMonitor {
     private val _connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
 
+    /**
+     * Quanti Parent Node stanno ascoltando in questo momento.
+     *
+     * Prima non aveva senso chiederselo: l'ascoltatore era uno o nessuno.
+     */
+    private val _listeners = MutableStateFlow(0)
+    val listeners: StateFlow<Int> = _listeners.asStateFlow()
+
+    internal fun setListeners(count: Int) {
+        _listeners.value = count
+    }
+
     private val _stream = MutableStateFlow<TransportState>(TransportState.Idle)
     val stream: StateFlow<TransportState> = _stream.asStateFlow()
 
@@ -79,6 +91,7 @@ object NoiseMonitor {
 
     internal fun setArmed(value: Boolean) {
         _armed.value = value
+        if (!value) _listeners.value = 0
         if (!value) _levelDb.value = -100.0
     }
 

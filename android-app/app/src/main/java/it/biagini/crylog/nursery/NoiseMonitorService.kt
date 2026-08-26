@@ -96,6 +96,7 @@ class NoiseMonitorService : Service() {
             sendSignal = { peerId, payload -> client.send(HubProtocol.signal(peerId, payload)) },
             audioOnly = { store.audioOnly },
             onCameraInUse = ::updateServiceType,
+            onListeners = NoiseMonitor::setListeners,
             onTalkBack = { active ->
                 Log.i(TAG, "talk-back=$active")
                 talkBackActive = active

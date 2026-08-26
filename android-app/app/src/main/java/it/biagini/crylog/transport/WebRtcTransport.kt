@@ -16,20 +16,34 @@ import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
+import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 
 /**
- * Trasporto WebRTC fra un Nursery Node e un Parent Node.
+ * Trasporto WebRTC fra un Nursery Node e i Parent Node che lo ascoltano.
  *
  * Chi ha il media fa l'offerta: il Nursery Node. Il Parent chiede e risponde.
  * L'alternativa — Parent che offre — costringerebbe a rinegoziare ogni volta
  * che cambia cosa il Nursery può dare.
  *
- * Nessun server ICE configurato: i due telefoni si vedono direttamente sulla
- * tailnet, quindi i candidati locali bastano e non serve rivolgersi a nessuno.
+ * **Un Nursery serve più ascoltatori insieme.** WebRTC non sa mandare lo stesso
+ * flusso a più destinatari da una connessione sola: serve una `PeerConnection`
+ * per ascoltatore, ognuna con la sua negoziazione e i suoi candidati. Il
+ * microfono e la fotocamera però restano uno solo, condivisi da tutte: la
+ * fotocamera non si apre due volte, e aprire due volte il microfono sarebbe
+ * comunque uno spreco visto che il suono è lo stesso.
+ *
+ * Il costo è la banda in salita del telefono in cameretta, che si moltiplica
+ * per il numero di ascoltatori: oltre [MAX_LISTENERS] non se ne accettano
+ * altri, perché un video a scatti per quattro è peggio di un video pulito per
+ * tre e un rifiuto onesto al quarto.
+ *
+ * Nessun server ICE configurato: i telefoni si vedono sulla tailnet, quindi i
+ * candidati locali bastano. Perché quelli della tailnet compaiano davvero serve
+ * però la configurazione in [WebRtcFactory].
  */
 class WebRtcTransport(
     private val context: Context,
@@ -41,8 +55,10 @@ class WebRtcTransport(
     private val audioOnly: () -> Boolean = { false },
     /** Avvisa quando la fotocamera si apre o si chiude, per il tipo del servizio. */
     private val onCameraInUse: (Boolean) -> Unit = {},
-    /** Avvisa il Nursery Node che il genitore sta parlando. */
+    /** Avvisa il Nursery Node che qualcuno sta parlando. */
     private val onTalkBack: (Boolean) -> Unit = {},
+    /** Quanti Parent Node stanno ascoltando in questo momento. */
+    private val onListeners: (Int) -> Unit = {},
 ) : StreamTransport {
 
     private val camera = CameraSource(context)
@@ -50,32 +66,53 @@ class WebRtcTransport(
     private val _state = MutableStateFlow<TransportState>(TransportState.Idle)
     override val state: StateFlow<TransportState> = _state.asStateFlow()
 
-    private var connection: PeerConnection? = null
-    private var peerId: String? = null
-    private var localAudio: AudioTrack? = null
+    /**
+     * Una sessione verso un capo, con tutto quello che le appartiene.
+     *
+     * I candidati stanno qui e non in un campo unico: arrivano intrecciati da
+     * ascoltatori diversi, e applicare quelli di uno alla connessione di un
+     * altro darebbe un guasto difficilissimo da leggere.
+     */
+    private class Listener(val id: String) {
+        var connection: PeerConnection? = null
+
+        /**
+         * I candidati arrivati prima della descrizione remota.
+         *
+         * WebRTC li rifiuta se applicati troppo presto, e l'ordine di arrivo
+         * non è garantito: vanno tenuti da parte e versati dopo.
+         */
+        val pending = mutableListOf<IceCandidate>()
+
+        var talking = false
+        var wantsVideo = false
+    }
+
+    /** In ordine di arrivo: il primo che ha chiesto è il primo della lista. */
+    private val listeners = LinkedHashMap<String, Listener>()
+
+    // --- Media del Nursery Node: uno solo, per tutti gli ascoltatori ---
+    private var roomAudio: AudioTrack? = null
+    private var roomVideo: VideoTrack? = null
+
+    // --- Media del Parent Node, che di sessioni ne ha sempre una ---
+    private var talkBackAudio: AudioTrack? = null
     private var remoteAudio: AudioTrack? = null
 
     /** Ricordato dalla richiesta: serve quando arriva l offerta, non prima. */
     private var wantTalkBack = false
 
-    /**
-     * I candidati che arrivano prima della descrizione remota non possono
-     * essere applicati: WebRTC li rifiuta. Vanno tenuti da parte, perché
-     * l'ordine di arrivo non è garantito.
-     */
-    private val pendingCandidates = mutableListOf<IceCandidate>()
-
     override suspend fun start(request: StreamRequest): Result<Unit> = runCatching {
         stop()
-        peerId = request.peerId
         _state.value = TransportState.Connecting
 
         when (role) {
             // Il Parent chiede e aspetta: sarà il Nursery a proporre.
             Role.PARENT -> {
                 wantTalkBack = request.talkBack
+                listeners[request.peerId] = Listener(request.peerId)
                 Log.i(TAG, "richiesta: video=${request.video} talkBack=${request.talkBack}")
-                send(SignalPayload.Request(request.video, request.talkBack))
+                send(request.peerId, SignalPayload.Request(request.video, request.talkBack))
             }
 
             // Un Nursery non apre sessioni di sua iniziativa: trasmette solo a
@@ -92,85 +129,105 @@ class WebRtcTransport(
 
         when (parsed) {
             is SignalPayload.Request -> if (role == Role.NURSERY) {
-                // Una sessione alla volta. Accettare la seconda scollegherebbe
-                // il primo ascoltatore senza avvisarlo: meglio dire di no.
-                if (connection != null && peerId != null && peerId != fromPeerId) {
-                    Log.i(TAG, "richiesta rifiutata: gia in ascolto con $peerId")
+                // Chi rifà la richiesta sta riaprendo la sua sessione, non ne
+                // apre una seconda: la vecchia va chiusa, o resterebbe a
+                // consumare banda verso un capo che non ascolta più.
+                if (listeners.containsKey(fromPeerId)) {
+                    closeListener(fromPeerId, notify = false)
+                } else if (listeners.size >= MAX_LISTENERS) {
+                    Log.i(TAG, "richiesta rifiutata: gia $MAX_LISTENERS ascoltatori")
                     sendSignal(fromPeerId, SignalPayload.Busy.encode())
                     return
                 }
-                peerId = fromPeerId
-                answerRequest(parsed)
+                answerRequest(fromPeerId, parsed)
             }
 
             SignalPayload.Busy -> {
                 _state.value = TransportState.Failed(BUSY_REASON)
-                peerId = null
+                listeners.clear()
             }
 
             is SignalPayload.Offer -> if (role == Role.PARENT) {
-                peerId = fromPeerId
-                acceptOffer(parsed)
+                acceptOffer(fromPeerId, parsed)
             }
 
-            is SignalPayload.Answer -> applyAnswer(parsed)
+            is SignalPayload.Answer -> applyAnswer(fromPeerId, parsed)
 
-            is SignalPayload.Ice -> addCandidate(parsed)
+            is SignalPayload.Ice -> addCandidate(fromPeerId, parsed)
 
             is SignalPayload.Talk -> if (role == Role.NURSERY) {
-                Log.i(TAG, "il genitore ${if (parsed.on) "sta parlando" else "ha chiuso"}")
-                onTalkBack(parsed.on)
+                Log.i(TAG, "$fromPeerId ${if (parsed.on) "sta parlando" else "ha chiuso"}")
+                listeners[fromPeerId]?.talking = parsed.on
+                refreshTalkBack()
             }
 
-            SignalPayload.Stop -> stop()
+            // Chiude solo chi ha salutato: gli altri stanno ancora ascoltando.
+            SignalPayload.Stop -> closeListener(fromPeerId, notify = false)
         }
     }
 
-    /** Il Nursery Node prepara la sessione e propone quello che ha. */
-    private fun answerRequest(request: SignalPayload.Request) {
-        _state.value = TransportState.Connecting
+    /** Il Nursery Node prepara la sessione per un ascoltatore e propone quello che ha. */
+    private fun answerRequest(peerId: String, request: SignalPayload.Request) {
         val factory = WebRtcFactory.get(context)
-        val pc = createConnection() ?: return
+        val listener = Listener(peerId)
+        val pc = createConnection(listener) ?: return
+        listeners[peerId] = listener
 
-        val source = factory.createAudioSource(MediaConstraints())
-        localAudio = factory.createAudioTrack("audio", source).also {
-            pc.addTrack(it, listOf(STREAM_ID))
-        }
+        // Il microfono si apre una volta sola e la sua traccia va a tutti: una
+        // seconda cattura sullo stesso microfono è fragile, e comunque inutile
+        // visto che il suono sarebbe identico.
+        val audio = roomAudio ?: factory
+            .createAudioTrack("audio", factory.createAudioSource(MediaConstraints()))
+            .also { roomAudio = it }
+        pc.addTrack(audio, listOf(STREAM_ID))
 
         // Il video ha due interruttori indipendenti: quello del Parent Node che
         // chiede, e quello globale del Nursery. Se il secondo è chiuso, non si
         // offre video a nessuno, qualunque cosa arrivi dall'altro capo.
-        val wantsVideo = request.video && !audioOnly()
-        val videoTrack = if (wantsVideo) {
-            // Prima si dichiara l'uso della fotocamera, poi la si apre: al
-            // contrario Android troverebbe una fotocamera attiva su un servizio
-            // che non l'ha dichiarata, e chiuderebbe tutto.
-            onCameraInUse(true)
-            camera.start(factory, WebRtcFactory.eglBase.eglBaseContext)
-                ?: run {
-                    onCameraInUse(false)
-                    null
-                }
-        } else {
-            null
-        }
-        videoTrack?.let { pc.addTrack(it, listOf(STREAM_ID)) }
+        listener.wantsVideo = request.video && !audioOnly()
+        val video = if (listener.wantsVideo) openCamera(factory) else null
+        video?.let { pc.addTrack(it, listOf(STREAM_ID)) }
 
         pc.createOffer(
             object : SdpAdapter("createOffer") {
                 override fun onCreateSuccess(description: SessionDescription) {
-                    Log.i(TAG, "offerta, audio ${audioDirection(description.description)}")
+                    Log.i(TAG, "offerta a $peerId, audio ${audioDirection(description.description)}")
                     pc.setLocalDescription(SdpAdapter("setLocal"), description)
-                    send(SignalPayload.Offer(description.description, hasVideo = videoTrack != null))
+                    send(
+                        peerId,
+                        SignalPayload.Offer(description.description, hasVideo = video != null),
+                    )
                 }
             },
             MediaConstraints(),
         )
+
+        refreshListeners()
+    }
+
+    /**
+     * Accende la fotocamera, o riusa quella già accesa.
+     *
+     * Una sola per tutti: il secondo ascoltatore che chiede il video riceve la
+     * stessa traccia del primo, perché la fotocamera non si apre due volte.
+     */
+    private fun openCamera(factory: PeerConnectionFactory): VideoTrack? {
+        roomVideo?.let { return it }
+
+        // Prima si dichiara l'uso della fotocamera, poi la si apre: al
+        // contrario Android troverebbe una fotocamera attiva su un servizio
+        // che non l'ha dichiarata, e chiuderebbe tutto.
+        onCameraInUse(true)
+        val track = camera.start(factory, WebRtcFactory.eglBase.eglBaseContext)
+        if (track == null) onCameraInUse(false)
+        roomVideo = track
+        return track
     }
 
     /** Il Parent Node accetta la proposta e risponde. */
-    private fun acceptOffer(offer: SignalPayload.Offer) {
-        val pc = createConnection() ?: return
+    private fun acceptOffer(peerId: String, offer: SignalPayload.Offer) {
+        val listener = listeners[peerId] ?: Listener(peerId).also { listeners[peerId] = it }
+        val pc = createConnection(listener) ?: return
 
         // La traccia per il talk-back si aggiunge qui, prima della risposta:
         // aggiungerla dopo costringerebbe a rinegoziare la sessione. Parte
@@ -179,7 +236,7 @@ class WebRtcTransport(
             Log.i(TAG, "aggiungo la traccia per il talk-back")
             val factory = WebRtcFactory.get(context)
             val source = factory.createAudioSource(MediaConstraints())
-            localAudio = factory.createAudioTrack("talkback", source).also {
+            talkBackAudio = factory.createAudioTrack("talkback", source).also {
                 it.setEnabled(false)
                 pc.addTrack(it, listOf(STREAM_ID))
             }
@@ -188,13 +245,16 @@ class WebRtcTransport(
         pc.setRemoteDescription(
             object : SdpAdapter("setRemote") {
                 override fun onSetSuccess() {
-                    drainCandidates()
+                    drainCandidates(listener)
                     pc.createAnswer(
                         object : SdpAdapter("createAnswer") {
                             override fun onCreateSuccess(description: SessionDescription) {
-                                Log.i(TAG, "risposta, audio ${audioDirection(description.description)}")
+                                Log.i(
+                                    TAG,
+                                    "risposta, audio ${audioDirection(description.description)}",
+                                )
                                 pc.setLocalDescription(SdpAdapter("setLocal"), description)
-                                send(SignalPayload.Answer(description.description))
+                                send(peerId, SignalPayload.Answer(description.description))
                             }
                         },
                         MediaConstraints(),
@@ -205,34 +265,36 @@ class WebRtcTransport(
         )
     }
 
-    private fun applyAnswer(answer: SignalPayload.Answer) {
-        Log.i(TAG, "risposta ricevuta, audio ${audioDirection(answer.sdp)}")
-        connection?.setRemoteDescription(
+    private fun applyAnswer(peerId: String, answer: SignalPayload.Answer) {
+        val listener = listeners[peerId] ?: return
+        Log.i(TAG, "risposta da $peerId, audio ${audioDirection(answer.sdp)}")
+        listener.connection?.setRemoteDescription(
             object : SdpAdapter("setRemote") {
-                override fun onSetSuccess() = drainCandidates()
+                override fun onSetSuccess() = drainCandidates(listener)
             },
             SessionDescription(SessionDescription.Type.ANSWER, answer.sdp),
         )
     }
 
-    private fun addCandidate(ice: SignalPayload.Ice) {
+    private fun addCandidate(peerId: String, ice: SignalPayload.Ice) {
+        val listener = listeners[peerId] ?: return
         val candidate = IceCandidate(ice.sdpMid, ice.sdpMLineIndex, ice.candidate)
-        val pc = connection
+        val pc = listener.connection
 
         if (pc?.remoteDescription == null) {
-            pendingCandidates += candidate
+            listener.pending += candidate
             return
         }
         pc.addIceCandidate(candidate)
     }
 
-    private fun drainCandidates() {
-        val pc = connection ?: return
-        pendingCandidates.forEach(pc::addIceCandidate)
-        pendingCandidates.clear()
+    private fun drainCandidates(listener: Listener) {
+        val pc = listener.connection ?: return
+        listener.pending.forEach(pc::addIceCandidate)
+        listener.pending.clear()
     }
 
-    private fun createConnection(): PeerConnection? {
+    private fun createConnection(listener: Listener): PeerConnection? {
         val configuration = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             // Su una tailnet i due capi si raggiungono direttamente: raccogliere
@@ -240,17 +302,19 @@ class WebRtcTransport(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
 
-        val pc = WebRtcFactory.get(context).createPeerConnection(configuration, Observer())
+        val pc = WebRtcFactory.get(context)
+            .createPeerConnection(configuration, Observer(listener))
         if (pc == null) {
             _state.value = TransportState.Failed("connessione non creata")
             return null
         }
-        connection = pc
+        listener.connection = pc
         return pc
     }
 
     override suspend fun setVideoEnabled(enabled: Boolean) {
-        // Il video arriva nel passo successivo: per ora la sessione è solo audio.
+        // Il video si decide alla richiesta: cambiarlo a sessione aperta
+        // vorrebbe dire rinegoziare con ogni ascoltatore.
     }
 
     override suspend fun setPlaybackEnabled(enabled: Boolean) {
@@ -258,34 +322,74 @@ class WebRtcTransport(
     }
 
     override suspend fun setTalkBackEnabled(enabled: Boolean) {
-        Log.i(TAG, "talk-back $enabled, traccia=${localAudio != null}")
-        localAudio?.setEnabled(enabled)
+        Log.i(TAG, "talk-back $enabled, traccia=${talkBackAudio != null}")
+        talkBackAudio?.setEnabled(enabled)
         // Il Nursery sospende il rilevamento mentre parli: altrimenti il suo
         // microfono risentirebbe la tua voce dallo speaker e la segnalerebbe
         // come rumore in cameretta.
-        send(SignalPayload.Talk(enabled))
+        listeners.keys.forEach { send(it, SignalPayload.Talk(enabled)) }
     }
 
     override suspend fun stop() {
-        if (connection != null) Log.i(TAG, "chiusura della sessione")
-        peerId?.let { send(SignalPayload.Stop) }
+        if (listeners.isNotEmpty()) Log.i(TAG, "chiusura di ${listeners.size} sessioni")
+        listeners.keys.toList().forEach { closeListener(it, notify = true) }
 
-        onTalkBack(false)
         wantTalkBack = false
-        if (camera.isRunning) {
-            camera.stop()
-            onCameraInUse(false)
-        }
-        connection?.dispose()
-        connection = null
-        localAudio = null
+        talkBackAudio = null
         remoteAudio = null
+        roomAudio = null
         onRemoteVideo(null)
-        pendingCandidates.clear()
-        peerId = null
         onRemoteAudio(null)
         StreamLevel.reset()
         _state.value = TransportState.Idle
+    }
+
+    /**
+     * Chiude una sessione sola, lasciando in piedi le altre.
+     *
+     * [notify] distingue chi se ne va da chi viene mandato via: a chi ha già
+     * salutato non serve rispondere, a chi non lo sa ancora sì.
+     */
+    private fun closeListener(peerId: String, notify: Boolean) {
+        val listener = listeners.remove(peerId) ?: return
+        if (notify) send(peerId, SignalPayload.Stop)
+
+        listener.connection?.dispose()
+        listener.connection = null
+        listener.pending.clear()
+
+        refreshTalkBack()
+        releaseCameraIfUnused()
+        refreshListeners()
+    }
+
+    /** Il rilevamento tace se **almeno uno** sta parlando, non solo l'ultimo. */
+    private fun refreshTalkBack() {
+        onTalkBack(listeners.values.any { it.talking })
+    }
+
+    /** La fotocamera resta accesa finché almeno un ascoltatore vuole il video. */
+    private fun releaseCameraIfUnused() {
+        if (listeners.values.any { it.wantsVideo }) return
+        if (!camera.isRunning) return
+
+        camera.stop()
+        roomVideo = null
+        onCameraInUse(false)
+    }
+
+    private fun refreshListeners() {
+        onListeners(listeners.size)
+        if (role != Role.NURSERY) return
+
+        // Sul Nursery lo stato è la somma degli ascoltatori: finché ne resta
+        // uno la trasmissione è in corso, e quando esce l'ultimo si torna in
+        // attesa. Con una sessione sola questa distinzione non serviva.
+        _state.value = if (listeners.isEmpty()) {
+            TransportState.Idle
+        } else {
+            TransportState.Streaming(video = roomVideo != null)
+        }
     }
 
     /**
@@ -305,22 +409,43 @@ class WebRtcTransport(
         return "?"
     }
 
-    private fun send(payload: SignalPayload) {
-        val target = peerId ?: return
-        sendSignal(target, payload.encode())
+    private fun send(peerId: String, payload: SignalPayload) {
+        sendSignal(peerId, payload.encode())
     }
 
-    private inner class Observer : PeerConnection.Observer {
+    private inner class Observer(private val listener: Listener) : PeerConnection.Observer {
 
         override fun onIceCandidate(candidate: IceCandidate) {
             // Quali interfacce WebRTC offre davvero: distingue una tailnet che
             // non viene enumerata da una che c e ma non instrada.
             Log.i(TAG, "candidato: ${candidate.sdp}")
-            send(SignalPayload.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex))
+            send(
+                listener.id,
+                SignalPayload.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex),
+            )
         }
 
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
-            Log.i(TAG, "connessione: $newState")
+            Log.i(TAG, "connessione con ${listener.id}: $newState")
+
+            if (role == Role.NURSERY) {
+                when (newState) {
+                    // Un ascoltatore che cade libera il suo posto: tenerlo
+                    // occupato impedirebbe a un altro di entrare, e il suo
+                    // "sto parlando" non arriverebbe mai a spegnersi.
+                    PeerConnection.PeerConnectionState.FAILED,
+                    PeerConnection.PeerConnectionState.DISCONNECTED,
+                    -> {
+                        listener.talking = false
+                        listener.wantsVideo = false
+                        closeListener(listener.id, notify = false)
+                    }
+
+                    else -> refreshListeners()
+                }
+                return
+            }
+
             _state.value = when (newState) {
                 PeerConnection.PeerConnectionState.CONNECTED ->
                     TransportState.Streaming(video = false)
@@ -399,6 +524,16 @@ class WebRtcTransport(
         val DIRECTIONS = setOf("sendrecv", "sendonly", "recvonly", "inactive")
         const val TAG = "CryLogStream"
         const val STREAM_ID = "crylog"
-        const val BUSY_REASON = "Il Nursery Node sta gia trasmettendo a un altro dispositivo"
+        const val BUSY_REASON = "Il Nursery Node sta gia trasmettendo al massimo dei dispositivi"
+
+        /**
+         * Quanti ascoltatori insieme.
+         *
+         * Senza un SFU ogni ascoltatore è un flusso in salita in più dal
+         * telefono in cameretta. Oltre questo numero l'upload satura e la
+         * qualità peggiora per tutti: meglio un rifiuto onesto al quarto che un
+         * video a scatti per tre.
+         */
+        const val MAX_LISTENERS = 3
     }
 }
