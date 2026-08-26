@@ -151,8 +151,8 @@ private fun RoleSelection(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        modifier = modifier.fillMaxSize().padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Item, Alignment.CenterVertically),
     ) {
         AppHeader(title = "CryLog", subtitle = "", connection = null)
 
@@ -270,8 +270,8 @@ private fun HubSetupForm(
     var url by rememberSaveable { mutableStateOf(state.url) }
 
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        modifier = modifier.fillMaxSize().padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Item, Alignment.CenterVertically),
     ) {
         AppHeader(title = "CryLog", subtitle = "", connection = null)
 
@@ -360,8 +360,11 @@ private fun PairingForm(
     }
 
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Section),
     ) {
         AppHeader(
             title = if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
@@ -369,47 +372,63 @@ private fun PairingForm(
             connection = null,
         )
 
-        Text("Collega all'Hub", style = MaterialTheme.typography.titleMedium)
-
-        Text("Codice di pairing", style = MaterialTheme.typography.bodyMedium)
-        PairingCodeField(value = code, onValueChange = { code = it })
-        Text(
-            "Otto caratteri, li generi dall'Hub",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Nome del dispositivo") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        if (state.error != null) {
-            Text(
-                pairingError(state.error),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        Button(
-            onClick = { onPair(PairingCode.format(code), name) },
-            enabled = !state.inProgress && PairingCode.isComplete(code) && name.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (state.inProgress) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp))
-            } else {
-                Text("Collega")
+        // Il codice è l'unica cosa che si va a cercare qui: sta da solo, in
+        // evidenza, e il nome viene dopo con un valore già ragionevole.
+        Section("Codice di pairing") {
+            SettingsCard {
+                PairingCodeField(value = code, onValueChange = { code = it })
+                Text(
+                    "Otto caratteri. Li generi dalla pagina dell'Hub.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
-            TextButton(onClick = onChangeHub) { Text("Cambia Hub") }
+        Section("Nome del dispositivo") {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text(if (state.role == Role.NURSERY) "Cameretta" else "Telefono") },
+                supportingText = { Text("Come lo vedrai negli avvisi") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            if (state.error != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Text(
+                        pairingError(state.error),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+
+            Button(
+                onClick = { onPair(PairingCode.format(code), name) },
+                enabled = !state.inProgress && PairingCode.isComplete(code) && name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (state.inProgress) {
+                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                } else {
+                    Text("Collega")
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.Tight)) {
+                TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
+                TextButton(onClick = onChangeHub) { Text("Cambia Hub") }
+            }
         }
     }
 }
@@ -460,8 +479,11 @@ private fun SessionScreen(
     Column(
         // La schermata non ci sta in altezza: senza scorrimento la cronologia
         // spingerebbe fuori dallo schermo il pulsante che la segue.
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Section),
     ) {
         AppHeader(
             title = if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
@@ -469,13 +491,15 @@ private fun SessionScreen(
             connection = state.connection,
         )
 
-        DndAccessCard()
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            DndAccessCard()
 
-        // Il banner compare solo quando c'e' qualcosa da fare: a connessione
-        // buona lo stato lo dice gia' il pallino della testata, e una card che
-        // ripete "tutto bene" ruba spazio a quello che serve davvero.
-        if (state.connection !is ConnectionState.Connected) {
-            ConnectionBanner(state.connection, onReconnect)
+            // Il banner compare solo quando c'e' qualcosa da fare: a connessione
+            // buona lo stato lo dice gia' il pallino della testata, e una card che
+            // ripete "tutto bene" ruba spazio a quello che serve davvero.
+            if (state.connection !is ConnectionState.Connected) {
+                ConnectionBanner(state.connection, onReconnect)
+            }
         }
 
         ContinuousCard(
@@ -507,80 +531,49 @@ private fun SessionScreen(
             onTalkingChange = { on -> talking = on; viewModel.setTalking(on) },
         )
 
-        HorizontalDivider()
-
-        Text("Avvisi", style = MaterialTheme.typography.titleSmall)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("Vibrazione", style = MaterialTheme.typography.bodyMedium)
-            Switch(
-                checked = vibrate,
-                onCheckedChange = { vibrate = it; viewModel.setVibrate(it) },
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Lampeggio del flash", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Utile a telefono silenzioso o a faccia in giù",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Section("Avvisi") {
+            SettingsCard {
+                SettingSwitch(
+                    title = "Vibrazione",
+                    checked = vibrate,
+                    onCheckedChange = { vibrate = it; viewModel.setVibrate(it) },
+                )
+                SettingSwitch(
+                    title = "Lampeggio del flash",
+                    description = "Utile a telefono silenzioso o a faccia in giù",
+                    checked = flash,
+                    onCheckedChange = { flash = it; viewModel.setFlash(it) },
+                )
+                SettingSwitch(
+                    title = "Ripeti finché non lo vedo",
+                    description = "Ogni tre secondi finché non scarti la notifica, " +
+                        "al massimo per cinque minuti",
+                    checked = insist,
+                    onCheckedChange = { insist = it; viewModel.setInsist(it) },
                 )
             }
-            Switch(
-                checked = flash,
-                onCheckedChange = { flash = it; viewModel.setFlash(it) },
-            )
+
+            OutlinedButton(onClick = viewModel::testAlert) { Text("Prova l'avviso") }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Ripeti finché non lo vedo", style = MaterialTheme.typography.bodyMedium)
+
+        Section("Eventi") {
+            if (state.events.isEmpty()) {
                 Text(
-                    "L'avviso si ripete ogni tre secondi finché non scarti la notifica. " +
-                        "Si ferma comunque dopo cinque minuti.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Nessun evento ricevuto.",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            Switch(
-                checked = insist,
-                onCheckedChange = { insist = it; viewModel.setInsist(it) },
-            )
-        }
-
-        OutlinedButton(onClick = viewModel::testAlert) { Text("Prova l'avviso") }
-
-        HorizontalDivider()
-
-        Text("Eventi", style = MaterialTheme.typography.titleMedium)
-
-        if (state.events.isEmpty()) {
-            Text(
-                "Nessun evento ricevuto.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else {
-            // Colonna semplice e non lazy: gli eventi sono al massimo
-            // MainViewModel.MAX_EVENTS, e una lista lazy dentro una colonna che
-            // scorre non puo misurarsi.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.events.forEach { event -> EventRow(event) }
+            } else {
+                // Colonna semplice e non lazy: gli eventi sono al massimo
+                // MainViewModel.MAX_EVENTS, e una lista lazy dentro una colonna che
+                // scorre non puo misurarsi.
+                Column(verticalArrangement = Arrangement.spacedBy(Space.Tight)) {
+                    state.events.forEach { event -> EventRow(event) }
+                }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.Tight)) {
             TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
             TextButton(onClick = { confirmingUnpair = true }) { Text("Scollega") }
         }

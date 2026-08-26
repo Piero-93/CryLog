@@ -128,14 +128,18 @@ fun NurseryScreen(
     Column(
         // Senza scorrimento la parte bassa, pulsanti compresi, resta fuori
         // schermo sui telefoni piu corti.
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Section),
     ) {
         AppHeader(title = "Nursery Node", subtitle = deviceName, connection = connection)
 
-        DndAccessCard()
-
-        StatusCard(armed = armed, connection = connection)
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            DndAccessCard()
+            StatusCard(armed = armed, connection = connection)
+        }
 
         if (armed) {
             Text("Livello attuale", style = MaterialTheme.typography.titleSmall)
