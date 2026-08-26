@@ -179,6 +179,10 @@ class NoiseMonitorService : Service() {
 
         audio = source
         NoiseMonitor.setArmed(true)
+        // Ripreso il lavoro, l'avviso di sorveglianza ferma non descrive più la
+        // realtà. Qui e non in chi chiama: questo è l'unico punto che sa di
+        // essere davvero partito.
+        BootReceiver.clearNotification(this)
 
         val url = store.hubUrl
         val token = store.deviceToken
@@ -193,6 +197,12 @@ class NoiseMonitorService : Service() {
     }
 
     override fun onDestroy() {
+        // Se `armed` è ancora acceso, nessuno ha chiesto di smettere: il
+        // servizio sta morendo per conto suo, e va detto.
+        if (store.armed) {
+            Log.w(TAG, "monitoraggio interrotto senza richiesta: avviso")
+            BootReceiver.notifyInterrupted(this)
+        }
         audio?.stop()
         audio = null
         scope.launch { transport?.stop() }

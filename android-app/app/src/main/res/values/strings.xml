@@ -38,5 +38,6 @@
     <string name="channel_stopped">Monitoraggio interrotto</string>
     <string name="channel_stopped_description">Avvisa quando la sorveglianza si è fermata senza che tu lo abbia chiesto</string>
     <string name="stopped_title">CryLog non sta sorvegliando</string>
-    <string name="stopped_text">Il telefono si è riavviato. Tocca per riprendere l’ascolto.</string>
+    <string name="stopped_text_reboot">Il telefono si è riavviato. Tocca per riprendere l’ascolto.</string>
+    <string name="stopped_text_interrupted">La sorveglianza si è interrotta. Tocca per riprenderla.</string>
 </resources>
