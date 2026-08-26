@@ -69,6 +69,10 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- Sostituire il pacchetto uccide il processo e annulla i
+                     riavvii pendenti: senza questo il monitoraggio resterebbe
+                     spento fino alla prossima apertura dell'app. -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
