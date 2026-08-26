@@ -135,16 +135,20 @@ fun PairingCodeField(
 
 @Composable
 private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
+    // La cornice c'e' sempre, anche sulle caselle vuote: sono il posto dove
+    // andra' qualcosa, e senza bordo non si capisce quanti caratteri servono.
     val borderColor = when {
         highlighted -> MaterialTheme.colorScheme.primary
-        char != null -> MaterialTheme.colorScheme.outline
-        else -> MaterialTheme.colorScheme.outlineVariant
+        char != null -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.outline
     }
 
     Box(
         modifier = Modifier
-            .width(36.dp)
-            .height(48.dp)
+            // 48dp e' il minimo per un bersaglio da toccare: a 36 il dito ci
+            // arrivava male, e queste caselle adesso si toccano per correggerle.
+            .width(48.dp)
+            .height(56.dp)
             // Senza indicazione visiva del tocco: la casella ha gia' il suo
             // bordo che si accende, e un'onda sopra sarebbe rumore.
             .clickable(
@@ -152,17 +156,29 @@ private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
                 indication = null,
                 onClick = onClick,
             )
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+            .background(
+                if (highlighted) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                },
+                MaterialTheme.shapes.small,
+            )
             .border(
                 width = if (highlighted) 2.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(8.dp),
+                shape = MaterialTheme.shapes.small,
             ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = char?.toString().orEmpty(),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineSmall,
+            color = if (highlighted) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             textAlign = TextAlign.Center,
         )
     }

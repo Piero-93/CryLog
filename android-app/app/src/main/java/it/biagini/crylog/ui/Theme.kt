@@ -70,6 +70,17 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Color(0xFFE1E2EC),
     onSurfaceVariant = Color(0xFF44474F),
 
+    // I cinque livelli di contenitore: sono loro a dare profondita' senza
+    // bordi. Prima esisteva un grigio solo, e una casella dentro una card dello
+    // stesso grigio semplicemente spariva.
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF7F4FA),
+    surfaceContainer = Color(0xFFF1EEF5),
+    surfaceContainerHigh = Color(0xFFEBE8EF),
+    surfaceContainerHighest = Color(0xFFE5E2EA),
+    surfaceBright = Color(0xFFFDFBFF),
+    surfaceDim = Color(0xFFDDD9E0),
+
     outline = Color(0xFF74777F),
     outlineVariant = Color(0xFFC4C6D0),
 )
@@ -103,6 +114,14 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF44474F),
     onSurfaceVariant = Color(0xFFC4C6D0),
 
+    surfaceContainerLowest = Color(0xFF0D0E12),
+    surfaceContainerLow = Color(0xFF1A1B20),
+    surfaceContainer = Color(0xFF1E1F24),
+    surfaceContainerHigh = Color(0xFF282A2F),
+    surfaceContainerHighest = Color(0xFF33343A),
+    surfaceBright = Color(0xFF38393E),
+    surfaceDim = Color(0xFF121318),
+
     outline = Color(0xFF8E9099),
     outlineVariant = Color(0xFF44474F),
 )
@@ -114,6 +133,7 @@ fun CryLogTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
+        shapes = CryLogShapes,
         content = content,
     )
 }

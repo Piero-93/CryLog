@@ -96,6 +96,13 @@ import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.StreamLevel
 import it.biagini.crylog.core.TransportState
 import it.biagini.crylog.core.Role
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.HearingDisabled
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Icon
 
 @Composable
 fun CryLogApp(
@@ -531,7 +538,7 @@ private fun SessionScreen(
             onTalkingChange = { on -> talking = on; viewModel.setTalking(on) },
         )
 
-        Section("Avvisi") {
+        CollapsibleSection("Avvisi") {
             SettingsCard {
                 SettingSwitch(
                     title = "Vibrazione",
@@ -575,7 +582,12 @@ private fun SessionScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(Space.Tight)) {
             TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
-            TextButton(onClick = { confirmingUnpair = true }) { Text("Scollega") }
+            TextButton(
+                onClick = { confirmingUnpair = true },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) { Text("Scollega") }
         }
     }
 
@@ -773,71 +785,57 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
     val health by ContinuousListening.health.collectAsStateWithLifecycle()
     val since by ContinuousListening.since.collectAsStateWithLifecycle()
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = when {
-                !enabled -> MaterialTheme.colorScheme.surfaceVariant
-                health == ContinuousListening.Health.LOST ||
-                    health == ContinuousListening.Health.NURSERY_GONE ->
-                    MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.secondaryContainer
-            },
-        ),
+    HeroCard(
+        title = "Ascolto continuo",
+        status = if (!enabled) {
+            "Spento: ricevi solo gli avvisi"
+        } else {
+            when (health) {
+                ContinuousListening.Health.STARTING -> "Connessione…"
+                ContinuousListening.Health.LISTENING -> "Audio in arrivo dalla cameretta"
+                ContinuousListening.Health.RECOVERING -> "Riconnessione…"
+                ContinuousListening.Health.LOST -> "Audio interrotto. Controlla il Nursery Node."
+                ContinuousListening.Health.PAUSED -> "In pausa, un'altra app sta usando l'audio"
+                ContinuousListening.Health.NURSERY_GONE -> "Nursery Node scollegato"
+            }
+        },
+        tone = when {
+            !enabled -> HeroTone.IDLE
+            health == ContinuousListening.Health.LISTENING -> HeroTone.GOOD
+            health == ContinuousListening.Health.LOST ||
+                health == ContinuousListening.Health.NURSERY_GONE -> HeroTone.BAD
+            else -> HeroTone.PENDING
+        },
+        icon = when {
+            !enabled -> Icons.Default.HearingDisabled
+            health == ContinuousListening.Health.LOST ||
+                health == ContinuousListening.Health.NURSERY_GONE -> Icons.Default.WarningAmber
+            else -> Icons.Default.Hearing
+        },
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Ascolto continuo", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Resta acceso a schermo spento e con l'app chiusa. " +
-                            "Tieni il telefono in carica.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        SettingSwitch(
+            title = "Tieni l'audio sempre aperto",
+            description = "Anche a schermo spento e con l'app chiusa. Tieni il telefono in carica.",
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+        )
+
+        if (!enabled) return@HeroCard
+
+        val history by StreamLevel.history.collectAsStateWithLifecycle()
+        // Distingue una cameretta tranquilla da uno stream che non porta nulla.
+        LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+
+        if (since != 0L) {
+            // Ricalcolato ogni minuto: un tempo fermo a "0 min" per tutta la
+            // notte direbbe l'opposto di quello che deve dire.
+            val now by produceState(System.currentTimeMillis(), since) {
+                while (true) {
+                    value = System.currentTimeMillis()
+                    delay(60_000L)
                 }
-                Switch(checked = enabled, onCheckedChange = onEnabledChange)
             }
-
-            if (!enabled) return@Column
-
-            Text(
-                when (health) {
-                    ContinuousListening.Health.STARTING -> "Connessione…"
-                    ContinuousListening.Health.LISTENING -> "Audio in arrivo"
-                    ContinuousListening.Health.RECOVERING -> "Riconnessione…"
-                    ContinuousListening.Health.LOST -> "Audio interrotto. Controlla il Nursery Node."
-                    ContinuousListening.Health.PAUSED -> "In pausa, un'altra app sta usando l'audio"
-                    ContinuousListening.Health.NURSERY_GONE ->
-                        "Nursery Node scollegato"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
-            if (since != 0L) {
-                // Ricalcolato ogni minuto: un tempo fermo a "0 min" per tutta la
-                // notte direbbe l'opposto di quello che deve dire.
-                val now by produceState(System.currentTimeMillis(), since) {
-                    while (true) {
-                        value = System.currentTimeMillis()
-                        delay(60_000L)
-                    }
-                }
-                Text(
-                    "Attivo da ${elapsedSince(since, now)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            val history by StreamLevel.history.collectAsStateWithLifecycle()
-            // Lo stesso grafico dell'ascolto a richiesta: distingue una
-            // cameretta tranquilla da uno stream che non porta nulla.
-            LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+            Text("Attivo da ${elapsedSince(since, now)}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -854,6 +852,16 @@ private fun elapsedSince(startedAt: Long, now: Long): String {
  * Prima erano due testi alti impilati piu' una card di stato: tre blocchi per
  * dire un nome e un pallino, su una schermata che gia' non ci stava in altezza.
  */
+@Composable
+fun BrandMark(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.ic_launcher_art),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier.size(72.dp).clip(RoundedCornerShape(20.dp)),
+    )
+}
+
 @Composable
 fun AppHeader(title: String, subtitle: String, connection: ConnectionState?) {
     Row(
@@ -978,12 +986,33 @@ private fun EventRow(event: HubMessage) {
         else -> return
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val icon = when (event) {
+        is HubMessage.Noise -> Icons.Default.VolumeUp
+        is HubMessage.NurseryOnline -> Icons.Default.Hearing
+        is HubMessage.NurseryOffline -> Icons.Default.WarningAmber
+        else -> Icons.Default.Info
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (event is HubMessage.NurseryOffline) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(20.dp),
+            )
             Text(text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             if (moment != null && moment > 0) {
                 Text(

@@ -66,6 +66,18 @@ import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.NoiseSensitivity
 import it.biagini.crylog.core.RmsNoiseDetector
 import it.biagini.crylog.nursery.NoiseMonitor
+import androidx.compose.foundation.Canvas
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.WarningAmber
 
 @Composable
 fun NurseryScreen(
@@ -81,14 +93,16 @@ fun NurseryScreen(
     val eventCount by NoiseMonitor.eventCount.collectAsStateWithLifecycle()
     val history by NoiseMonitor.history.collectAsStateWithLifecycle()
 
-    var sensitivity by remember {
+    // rememberSaveable e non remember: con `remember` bastava ruotare lo schermo
+    // per veder tornare indietro la sensibilità appena regolata.
+    var sensitivity by rememberSaveable {
         mutableStateOf(NoiseSensitivity.fromThresholdDb(viewModel.noiseThresholdDb).toFloat())
     }
-    var permissionDenied by remember { mutableStateOf(false) }
-    var confirmingUnpair by remember { mutableStateOf(false) }
-    var minDuration by remember { mutableStateOf(viewModel.noiseMinDurationMs) }
-    var cooldown by remember { mutableStateOf(viewModel.noiseCooldownMs) }
-    var audioOnly by remember { mutableStateOf(viewModel.audioOnly) }
+    var permissionDenied by rememberSaveable { mutableStateOf(false) }
+    var confirmingUnpair by rememberSaveable { mutableStateOf(false) }
+    var minDuration by rememberSaveable { mutableStateOf(viewModel.noiseMinDurationMs) }
+    var cooldown by rememberSaveable { mutableStateOf(viewModel.noiseCooldownMs) }
+    var audioOnly by rememberSaveable { mutableStateOf(viewModel.audioOnly) }
     var cameraGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -136,103 +150,129 @@ fun NurseryScreen(
     ) {
         AppHeader(title = "Nursery Node", subtitle = deviceName, connection = connection)
 
-        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
-            DndAccessCard()
-            StatusCard(armed = armed, connection = connection)
-        }
-
-        if (armed) {
-            Text("Livello attuale", style = MaterialTheme.typography.titleSmall)
-            LevelChart(
-                history = history,
-                thresholdDb = NoiseSensitivity.toThresholdDb(sensitivity.toDouble()),
-            )
-            LevelMeter(
-                levelDb = levelDb,
-                thresholdDb = NoiseSensitivity.toThresholdDb(sensitivity.toDouble()),
-            )
-            Text(
-                "%.0f dBFS, scatta a %.0f dBFS".format(
-                    levelDb,
-                    NoiseSensitivity.toThresholdDb(sensitivity.toDouble()),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                if (eventCount == 0) {
-                    "Ancora nessun rumore."
-                } else {
-                    "Rumori rilevati in questa sessione: $eventCount"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        HorizontalDivider()
-
-        Text(
-            "Sensibilità: ${NoiseSensitivity.asPercent(sensitivity.toDouble())}%",
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Slider(
-            value = sensitivity,
-            onValueChange = { sensitivity = it },
-            onValueChangeFinished = {
-                viewModel.setThreshold(NoiseSensitivity.toThresholdDb(sensitivity.toDouble()))
+        // L'eroe: cosa sta succedendo adesso, e il pulsante che lo cambia.
+        // Prima quel pulsante era l'ultima cosa della pagina, dopo nove
+        // regolazioni che si toccano una volta nella vita.
+        val threshold = NoiseSensitivity.toThresholdDb(sensitivity.toDouble())
+        HeroCard(
+            title = if (armed) "In ascolto" else "Non sta monitorando",
+            status = when {
+                !armed -> "Il microfono è spento"
+                connection is ConnectionState.Connected -> "Gli avvisi arrivano ai Parent Node"
+                connection is ConnectionState.Connecting -> "Connessione all'Hub…"
+                else -> "Senza Hub gli avvisi non partono"
             },
-            valueRange = 0f..1f,
-        )
-        Text(
-            "Più a destra sente di più. Se scattano falsi allarmi, abbassala; se non " +
-                "sente il bambino, alzala.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        PresetSelector(
-            title = "Ignora i rumori brevi",
-            description = "Quanto a lungo deve durare un rumore per contare. " +
-                "Alzala se una porta che sbatte fa scattare l'avviso.",
-            presets = MIN_DURATION_PRESETS,
-            selectedMs = minDuration,
-            onSelect = { minDuration = it; viewModel.setMinDuration(it) },
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            tone = when {
+                !armed -> HeroTone.IDLE
+                connection is ConnectionState.Connected -> HeroTone.GOOD
+                connection is ConnectionState.Connecting -> HeroTone.PENDING
+                else -> HeroTone.BAD
+            },
+            icon = when {
+                !armed -> Icons.Default.MicOff
+                connection is ConnectionState.Connected -> Icons.Default.Hearing
+                connection is ConnectionState.Connecting -> Icons.Default.Hearing
+                else -> Icons.Default.WarningAmber
+            },
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("Solo audio", style = MaterialTheme.typography.bodyMedium)
+            if (armed) {
+                LevelChart(history = history, thresholdDb = threshold)
+                LevelMeter(levelDb = levelDb, thresholdDb = threshold)
                 Text(
-                    "La fotocamera non si accende mai, qualunque cosa chieda un Parent Node.",
+                    if (eventCount == 0) {
+                        "Ancora nessun rumore, soglia a %.0f dBFS".format(threshold)
+                    } else {
+                        "$eventCount rumori in questa sessione"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(
-                checked = audioOnly,
-                onCheckedChange = { audioOnly = it; viewModel.setAudioOnly(it) },
-            )
+
+            if (permissionDenied) {
+                Text(
+                    "Senza microfono il monitoraggio non può funzionare. " +
+                        "Concedilo dalle impostazioni dell'app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            // Fermare la sorveglianza non deve avere lo stesso invito che ha
+            // avviarla: pieno per accendere, contornato per spegnere.
+            val onClick = {
+                if (armed) {
+                    viewModel.disarm()
+                } else {
+                    val missing = required.filter {
+                        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+                    }
+                    if (missing.isEmpty()) viewModel.arm() else launcher.launch(missing.toTypedArray())
+                }
+            }
+
+            if (armed) {
+                OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+                    Text("Interrompi")
+                }
+            } else {
+                Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+                    Text("Avvia il monitoraggio")
+                }
+            }
         }
 
-        // Il permesso fotocamera si chiede all'avvio del monitoraggio, ma chi
-        // aveva già armato prima di questa versione non lo ha mai visto: senza
-        // un modo per concederlo dopo, il video resterebbe nero per sempre.
-        if (!audioOnly && !cameraGranted) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                ),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Senza accesso alla fotocamera i Parent Node riceveranno " +
-                            "solo audio, anche se chiedono il video.",
-                        style = MaterialTheme.typography.bodyMedium,
+        DndAccessCard()
+
+        CollapsibleSection("Rilevamento") {
+            SettingsCard {
+                SettingRow(
+                    title = "Sensibilità",
+                    trailing = "${NoiseSensitivity.asPercent(sensitivity.toDouble())}%",
+                    description = "Se scattano falsi allarmi abbassala; se non sente il bambino alzala.",
+                ) {
+                    Slider(
+                        value = sensitivity,
+                        onValueChange = { sensitivity = it },
+                        onValueChangeFinished = {
+                            viewModel.setThreshold(NoiseSensitivity.toThresholdDb(sensitivity.toDouble()))
+                        },
+                        valueRange = 0f..1f,
                     )
+                }
+
+                PresetSelector(
+                    title = "Ignora i rumori brevi",
+                    description = "Alzala se una porta che sbatte fa scattare l'avviso.",
+                    presets = MIN_DURATION_PRESETS,
+                    selectedMs = minDuration,
+                    onSelect = { minDuration = it; viewModel.setMinDuration(it) },
+                )
+
+                PresetSelector(
+                    title = "Avvisa al massimo ogni",
+                    description = "Evita decine di notifiche durante un pianto lungo.",
+                    presets = COOLDOWN_PRESETS,
+                    selectedMs = cooldown,
+                    onSelect = { cooldown = it; viewModel.setCooldown(it) },
+                )
+            }
+        }
+
+        CollapsibleSection("Video") {
+            SettingsCard {
+                SettingSwitch(
+                    title = "Solo audio",
+                    description = "La fotocamera non si accende mai, qualunque cosa chieda un Parent Node.",
+                    checked = audioOnly,
+                    onCheckedChange = { audioOnly = it; viewModel.setAudioOnly(it) },
+                )
+            }
+
+            if (!audioOnly && !cameraGranted) {
+                NoticeCard(
+                    text = "Senza accesso alla fotocamera i Parent Node riceveranno solo audio, " +
+                        "anche se chiedono il video.",
+                    severe = true,
+                ) {
                     OutlinedButton(
                         onClick = { cameraLauncher.launch(Manifest.permission.CAMERA) },
                     ) {
@@ -242,41 +282,12 @@ fun NurseryScreen(
             }
         }
 
-        PresetSelector(
-            title = "Avvisa al massimo ogni",
-            description = "Dopo un avviso il rilevamento fa una pausa. Serve a non " +
-                "ricevere decine di notifiche durante un pianto lungo.",
-            presets = COOLDOWN_PRESETS,
-            selectedMs = cooldown,
-            onSelect = { cooldown = it; viewModel.setCooldown(it) },
-        )
-
-        if (permissionDenied) {
-            Text(
-                "Senza accesso al microfono il monitoraggio non può funzionare. " +
-                    "Concedilo dalle impostazioni dell'app.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        Button(
-            onClick = {
-                if (armed) {
-                    viewModel.disarm()
-                } else {
-                    val missing = required.filter {
-                        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-                    }
-                    if (missing.isEmpty()) viewModel.arm() else launcher.launch(missing.toTypedArray())
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (armed) "Interrompi il monitoraggio" else "Avvia il monitoraggio")
-        }
-
-        TextButton(onClick = { confirmingUnpair = true }) { Text("Scollega questo dispositivo") }
+        TextButton(
+            onClick = { confirmingUnpair = true },
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+        ) { Text("Scollega questo dispositivo") }
     }
 
     if (confirmingUnpair) {
@@ -331,17 +342,34 @@ private fun LevelMeter(levelDb: Double, thresholdDb: Double) {
     // Da -100..0 dBFS a 0..1, per avere una barra leggibile.
     val fraction = ((levelDb - RmsNoiseDetector.SILENCE_DB) / -RmsNoiseDetector.SILENCE_DB)
         .coerceIn(0.0, 1.0)
-    val overThreshold = levelDb >= thresholdDb
+    val markAt = ((thresholdDb - RmsNoiseDetector.SILENCE_DB) / -RmsNoiseDetector.SILENCE_DB)
+        .coerceIn(0.0, 1.0)
+    val over = levelDb >= thresholdDb
 
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinearProgressIndicator(
-            progress = { fraction.toFloat() },
-            modifier = Modifier.weight(1f).height(12.dp),
-            color = if (overThreshold) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val fill = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val mark = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+    val reading = "Livello %.0f dBFS, soglia %.0f dBFS".format(levelDb, thresholdDb)
+
+    // Disegnato a mano e non con LinearProgressIndicator: quello anima ogni
+    // cambio di valore, ed e' pensato per un progresso che avanza, non per un
+    // livello che si muove dieci volte al secondo. Ne usciva molle e in ritardo
+    // sul suono.
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(10.dp)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .semantics { contentDescription = reading },
+    ) {
+        drawRect(color = track)
+        drawRect(color = fill, size = Size(size.width * fraction.toFloat(), size.height))
+        val x = size.width * markAt.toFloat()
+        drawLine(
+            color = mark,
+            start = Offset(x, 0f),
+            end = Offset(x, size.height),
+            strokeWidth = 2f,
         )
     }
 }
