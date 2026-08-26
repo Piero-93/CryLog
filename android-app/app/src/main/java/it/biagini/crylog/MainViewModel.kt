@@ -644,7 +644,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MAX_EVENTS = 50
-        const val DEFAULT_HUB_URL = "https://crylog."
+        const val DEFAULT_HUB_URL = ""
         const val TAG = "CryLogViewModel"
     }
 }

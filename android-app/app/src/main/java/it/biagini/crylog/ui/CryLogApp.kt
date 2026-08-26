@@ -103,6 +103,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
+import androidx.compose.ui.text.input.KeyboardType
 
 @Composable
 fun CryLogApp(
@@ -276,39 +277,53 @@ private fun HubSetupForm(
 ) {
     var url by rememberSaveable { mutableStateOf(state.url) }
 
+    // Ancorata in alto e non centrata: l'intestazione tiene il bordo superiore,
+    // il contenuto scende da li'. Prima galleggiava tutto in mezzo e nessun
+    // elemento aveva un posto suo.
     Column(
-        modifier = modifier.fillMaxSize().padding(Space.Screen),
-        verticalArrangement = Arrangement.spacedBy(Space.Item, Alignment.CenterVertically),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Section),
     ) {
         AppHeader(title = "CryLog", subtitle = "", connection = null)
 
-        Text(
-            "Indirizzo del tuo Hub",
-            style = MaterialTheme.typography.titleMedium,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Tight)) {
+            Text("Il tuo Hub", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "È il servizio che hai installato in casa: mette in contatto i due " +
+                    "telefoni e tiene l'audio dentro la tua rete.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-        OutlinedTextField(
-            value = url,
-            onValueChange = { url = it },
-            label = { Text("Indirizzo dell'Hub") },
-            supportingText = { Text("es. https://crylog.tuo-tailnet.ts.net") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            // Il campo parte vuoto: un "https://crylog." a meta' sembrava un
+            // errore e costringeva a portare il cursore in fondo prima di
+            // scrivere. L'esempio sta nel segnaposto, dove non occupa una riga.
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("Indirizzo") },
+                placeholder = { Text("https://crylog.tuo-tailnet.ts.net") },
+                supportingText = { Text("Si chiede una volta sola") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        Text(
-            "Serve una volta sola, poi vale per questo telefono.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Button(
-            onClick = { onConfirm(url) },
-            enabled = url.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Avanti")
+            Button(
+                onClick = { onConfirm(url) },
+                enabled = url.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Collega")
+            }
         }
     }
 }

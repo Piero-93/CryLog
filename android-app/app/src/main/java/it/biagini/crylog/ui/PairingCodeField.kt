@@ -59,6 +59,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import it.biagini.crylog.core.PairingCode
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Campo a caselle per il codice di pairing. Un solo campo di testo invisibile
@@ -99,31 +101,35 @@ fun PairingCodeField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
         decorationBox = {
+            // Le caselle si dividono la larghezza disponibile invece di averne
+            // una fissa: a 48dp l'una, otto piu' i distanziatori uscivano dal
+            // bordo di qualunque telefono. I due gruppi da quattro si leggono
+            // dallo spazio piu' largo al centro, senza spendere un trattino.
+            val caret = field.selection.end.coerceAtMost(PairingCode.LENGTH - 1)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 repeat(PairingCode.LENGTH) { index ->
-                    if (index == PairingCode.LENGTH / 2) {
-                        Text(
-                            "-",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(horizontal = 2.dp),
-                        )
-                    }
+                    if (index == PairingCode.LENGTH / 2) Spacer(Modifier.width(8.dp))
+
                     CodeCell(
                         char = value.getOrNull(index),
-                        // La casella attiva è quella dove finirà il prossimo carattere.
-                        highlighted = focused &&
-                            index == field.selection.end.coerceAtMost(PairingCode.LENGTH - 1),
+                        // La casella attiva è quella dove finirà il prossimo
+                        // carattere.
+                        highlighted = focused && index == caret,
+                        modifier = Modifier.weight(1f),
                         onClick = {
                             // Toccando una cifra la si seleziona: il carattere
-                            // successivo digitato prende il suo posto, invece di
-                            // infilarsi in coda.
+                            // digitato prende il suo posto, invece di infilarsi
+                            // in coda.
                             val end = (index + 1).coerceAtMost(value.length)
-                            field = TextFieldValue(value, TextRange(index.coerceAtMost(value.length), end))
+                            field = TextFieldValue(
+                                value,
+                                TextRange(index.coerceAtMost(value.length), end),
+                            )
                             focusRequester.requestFocus()
                         },
                     )
@@ -134,7 +140,12 @@ fun PairingCodeField(
 }
 
 @Composable
-private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
+private fun CodeCell(
+    char: Char?,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     // La cornice c'e' sempre, anche sulle caselle vuote: sono il posto dove
     // andra' qualcosa, e senza bordo non si capisce quanti caratteri servono.
     val borderColor = when {
@@ -144,10 +155,9 @@ private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
     }
 
     Box(
-        modifier = Modifier
-            // 48dp e' il minimo per un bersaglio da toccare: a 36 il dito ci
-            // arrivava male, e queste caselle adesso si toccano per correggerle.
-            .width(48.dp)
+        modifier = modifier
+            // La larghezza la decide la riga: quattro caselle si dividono lo
+            // spazio disponibile, e restano comode da toccare su ogni schermo.
             .height(56.dp)
             // Senza indicazione visiva del tocco: la casella ha gia' il suo
             // bordo che si accende, e un'onda sopra sarebbe rumore.
@@ -173,7 +183,7 @@ private fun CodeCell(char: Char?, highlighted: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             text = char?.toString().orEmpty(),
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             color = if (highlighted) {
                 MaterialTheme.colorScheme.onPrimaryContainer
             } else {
