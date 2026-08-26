@@ -44,6 +44,8 @@ import it.biagini.crylog.nursery.NoiseMonitor
 import it.biagini.crylog.nursery.NoiseMonitorService
 import it.biagini.crylog.parent.AlertNotifier
 import it.biagini.crylog.parent.Alerter
+import it.biagini.crylog.parent.ContinuousListening
+import it.biagini.crylog.parent.ListenService
 import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.SeenEvents
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,46 +103,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
+        // Due sorgenti per la stessa schermata: la connessione propria quando
+        // l'ascolto continuo e spento, quella del servizio quando e acceso.
+        // L'Hub tiene una sessione sola per dispositivo, quindi non possono
+        // essere aperte insieme.
         viewModelScope.launch {
-            client.state.collect { connection ->
-                _uiState.update { current ->
-                    if (current is UiState.Session) current.copy(connection = connection) else current
-                }
-                // Un token rifiutato non si risolve da solo: si torna al pairing.
-                if (connection is ConnectionState.Failed && connection.unauthorized) resetPairing()
-
-                if (connection is ConnectionState.Connected) {
-                    deliverFcmToken()
-                    loadHistory()
-                } else {
-                    // Persa la connessione non sappiamo più se qualcuno stia
-                    // sorvegliando: meglio nessuna informazione che una vecchia.
-                    AlertNotifier(getApplication()).clearWatching()
-                }
+            client.state.collect {
+                Log.i(TAG, "Hub (UI): $it, continuo=${store.continuousListening}")
+                if (!store.continuousListening) onConnection(it)
+            }
+        }
+        viewModelScope.launch {
+            ContinuousListening.connection.collect { if (store.continuousListening) onConnection(it) }
+        }
+        viewModelScope.launch {
+            client.messages.collect { if (!store.continuousListening) onMessage(it, alerts = true) }
+        }
+        viewModelScope.launch {
+            // Gli avvisi li ha gia dati il servizio: rifarli qui li sdoppierebbe
+            // ogni volta che l'app e aperta.
+            ContinuousListening.messages.collect {
+                if (store.continuousListening) onMessage(it, alerts = false)
             }
         }
 
-        viewModelScope.launch {
-            client.messages.collect { message ->
-                handleAlert(message)
-
-                // Il signaling è traffico tecnico fra i due telefoni: non ha
-                // nulla da dire a chi guarda la cronologia.
-                if (message is HubMessage.Signal || message is HubMessage.SignalUndelivered) {
-                    return@collect
-                }
-
-                _uiState.update { current ->
-                    if (current !is UiState.Session) return@update current
-                    current.copy(events = (listOf(message) + current.events).take(MAX_EVENTS))
-                }
-            }
-        }
-
-        // Con ruolo Nursery la connessione appartiene al servizio: aprirne una
-        // seconda qui significherebbe due sessioni per lo stesso dispositivo.
         if (store.isPaired && store.role == Role.PARENT) {
-            connect()
+            // Con l'ascolto continuo acceso la connessione appartiene al
+            // servizio: aprirne una seconda qui scollegherebbe proprio quella
+            // che deve restare in piedi.
+            if (!store.continuousListening) connect()
             requestFcmToken()
 
             transport?.let { stream ->
@@ -155,6 +146,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         resumeIfInterrupted()
+    }
+
+    private fun onConnection(connection: ConnectionState) {
+        _uiState.update { current ->
+            if (current is UiState.Session) current.copy(connection = connection) else current
+        }
+        // Un token rifiutato non si risolve da solo: si torna al pairing.
+        if (connection is ConnectionState.Failed && connection.unauthorized) resetPairing()
+
+        if (connection is ConnectionState.Connected) {
+            deliverFcmToken()
+            loadHistory()
+        } else {
+            // Persa la connessione non sappiamo più se qualcuno stia
+            // sorvegliando: meglio nessuna informazione che una vecchia.
+            AlertNotifier(getApplication()).clearWatching()
+        }
+    }
+
+    private fun onMessage(message: HubMessage, alerts: Boolean) {
+        handleAlert(message, alerts)
+
+        // Il signaling è traffico tecnico fra i due telefoni: non ha nulla da
+        // dire a chi guarda la cronologia.
+        if (message is HubMessage.Signal || message is HubMessage.SignalUndelivered) return
+
+        _uiState.update { current ->
+            if (current !is UiState.Session) return@update current
+            current.copy(events = (listOf(message) + current.events).take(MAX_EVENTS))
+        }
     }
 
     private fun initialState(): UiState = when {
@@ -220,6 +241,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * è già stato concesso, quindi la piattaforma lo consente.
      */
     fun resumeIfInterrupted() {
+        // L'ascolto continuo puo essere sopravvissuto a un riavvio solo come
+        // preferenza: il servizio no. Riaprire l'app e il momento in cui se ne
+        // accorge qualcuno.
+        if (store.role == Role.PARENT && store.continuousListening &&
+            !ContinuousListening.active.value
+        ) {
+            Log.i(TAG, "ascolto continuo interrotto: riprendo")
+            ListenService.start(getApplication())
+        }
+
         if (store.role != Role.NURSERY) return
         if (!store.armed || NoiseMonitor.armed.value) return
 
@@ -267,17 +298,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * chiedersi perché il telefono si sia mosso. Quale dei due canali abbia
      * portato l'evento non deve fare differenza.
      */
-    private fun handleAlert(message: HubMessage) {
+    private fun handleAlert(message: HubMessage, alerts: Boolean = true) {
         val notifier = AlertNotifier(getApplication())
 
         when (message) {
             is HubMessage.Noise -> {
+                if (!alerts) return
                 if (!SeenEvents.markSeen(message.id)) return
                 notifier.notifyNoise(message.id)
                 alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
             }
 
             is HubMessage.NurseryOffline -> {
+                if (!alerts) return
                 notifier.clearWatching()
                 if (!SeenEvents.markSeen("offline:${message.nurseryId}")) return
                 notifier.notifyNurseryGone(message.reason)
@@ -287,16 +320,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Il Nursery Node è tornato: l'allarme non descrive più la realtà,
             // e al suo posto va lo stato di chi sorveglia.
             is HubMessage.NurseryOnline -> {
-                SeenEvents.forgetOffline(message.nurseryId)
-                notifier.clearNurseryGone()
-                notifier.notifyWatching(message.nurseryName, message.at)
+                if (alerts) {
+                    SeenEvents.forgetOffline(message.nurseryId)
+                    notifier.clearNurseryGone()
+                    notifier.notifyWatching(message.nurseryName, message.at)
+                }
                 _uiState.update { current ->
                     if (current !is UiState.Session) return@update current
                     current.copy(nurseryId = message.nurseryId, nurseryName = message.nurseryName)
                 }
             }
 
-            is HubMessage.Signal -> viewModelScope.launch {
+            // Con l'ascolto continuo acceso il trasporto e del servizio: una
+            // busta consegnata anche qui aprirebbe una seconda sessione.
+            is HubMessage.Signal -> if (alerts) viewModelScope.launch {
                 transport?.onSignal(message.from, message.payload)
             }
 
@@ -417,6 +454,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setVibrate(enabled: Boolean) { store.vibrateOnAlert = enabled }
 
+    // --- Ascolto continuo (Parent Node) ---
+
+    val continuousListening: Boolean get() = store.continuousListening
+
+    /**
+     * Accende o spegne l'ascolto continuo.
+     *
+     * Il passaggio non e solo un interruttore: cambia chi possiede la
+     * connessione all'Hub. Acceso, e del servizio, che deve reggere con l'app
+     * chiusa; spento, torna qui. L'Hub ne accetta una sola per dispositivo,
+     * quindi la vecchia va chiusa prima di aprire la nuova.
+     */
+    fun setContinuousListening(enabled: Boolean) {
+        if (store.continuousListening == enabled) return
+        store.continuousListening = enabled
+        val app = getApplication<Application>()
+
+        if (enabled) {
+            viewModelScope.launch { transport?.stop() }
+            client.disconnect()
+            ListenService.start(app)
+        } else {
+            ListenService.stop(app)
+            if (store.isPaired && store.role == Role.PARENT) connect()
+        }
+    }
+
     fun setFlash(enabled: Boolean) { store.flashOnAlert = enabled }
 
     /** Fa sentire al genitore com'è l'avviso, prima che serva davvero. */
@@ -450,6 +514,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun stopEverything() {
         disarm()
+        setContinuousListening(false)
         client.disconnect()
     }
 

@@ -48,6 +48,15 @@ interface StreamTransport {
 
     suspend fun setTalkBackEnabled(enabled: Boolean)
 
+    /**
+     * Silenzia o riattiva l audio in arrivo senza chiudere la sessione.
+     *
+     * Serve all AudioFocus: una telefonata deve zittire l ascolto e poi
+     * restituirlo, e rinegoziare la sessione a ogni chiamata costerebbe secondi
+     * di silenzio vero.
+     */
+    suspend fun setPlaybackEnabled(enabled: Boolean)
+
     suspend fun stop()
 
     /**

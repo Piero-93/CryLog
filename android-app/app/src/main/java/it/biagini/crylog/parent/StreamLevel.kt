@@ -27,9 +27,23 @@ object StreamLevel {
 
     private var blocks = 0
 
+    /**
+     * Quando e arrivato l ultimo blocco audio, o zero se non ne e arrivato
+     * nessuno.
+     *
+     * Lo stato ICE dice che la connessione regge, non che stia trasportando
+     * qualcosa: una sessione "connessa" e muta e' esattamente il silenzio
+     * ambiguo che un baby monitor non puo permettersi. Questo e l unico punto
+     * in cui i pacchetti audio arrivano davvero, quindi e qui che si misura.
+     */
+    @Volatile
+    var lastFrameAtMs: Long = 0L
+        private set
+
     fun push(samples: ShortArray, length: Int) {
         val level = RmsNoiseDetector.levelDb(samples, length)
         _levelDb.value = level
+        lastFrameAtMs = System.currentTimeMillis()
 
         // WebRTC consegna blocchi da 10 ms: uno su venti basta per il grafico,
         // e risparmia diciannove ricomposizioni su venti.
@@ -43,6 +57,7 @@ object StreamLevel {
 
     fun reset() {
         blocks = 0
+        lastFrameAtMs = 0L
         _levelDb.value = SILENCE.toDouble()
         _history.value = FloatArray(HISTORY_SIZE) { SILENCE }
     }

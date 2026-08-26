@@ -8,6 +8,19 @@
     <string name="monitoring_text">Il microfono resta attivo anche a schermo spento</string>
     <string name="monitoring_stop">Interrompi</string>
 
+    <string name="channel_listening">Ascolto continuo</string>
+    <string name="channel_listening_description">Notifica sempre presente mentre l’ascolto continuo è acceso</string>
+    <string name="listening_title">Ascolto continuo</string>
+    <string name="listening_title_room">In ascolto da %1$s</string>
+    <string name="listening_starting">Apertura della sessione…</string>
+    <string name="listening_ok">L’audio dalla cameretta sta arrivando</string>
+    <string name="listening_recovering">Audio fermo: sto riprovando</string>
+    <string name="listening_lost">Audio perso: controlla il Nursery Node</string>
+    <string name="listening_paused">In pausa: un’altra app sta usando l’audio</string>
+
+    <string name="listening_gone">Il Nursery Node non è collegato: nessuno sta sorvegliando</string>
+    <string name="listening_silence">Silenzia</string>
+
     <string name="channel_alert">Avvisi di rumore</string>
     <string name="channel_alert_description">Notifica quando il Nursery Node sente un rumore</string>
     <string name="alert_title">Rumore rilevato</string>
