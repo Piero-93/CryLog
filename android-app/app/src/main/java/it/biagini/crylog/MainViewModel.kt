@@ -51,12 +51,30 @@ import it.biagini.crylog.parent.SeenEvents
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed interface UiState {
 
+    /**
+     * L'indirizzo dell'Hub, chiesto una volta sola per dispositivo.
+     *
+     * Viene prima del ruolo perché è una proprietà dell'impianto, non del
+     * ruolo: cambiare ruolo a un telefono non cambia dove sta l'Hub, e
+     * richiederlo ogni volta faceva sembrare il contrario.
+     */
+    data class HubSetup(val url: String, val error: String? = null) : UiState
+
     data object ChoosingRole : UiState
+
+    /** Cambio di ruolo su un dispositivo gia accoppiato: niente codice. */
+    data class ChangingRole(
+        val current: Role,
+        val name: String,
+        val inProgress: Boolean = false,
+        val error: String? = null,
+    ) : UiState
 
     data class Pairing(
         val role: Role,
@@ -88,15 +106,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Il trasporto vive nel ViewModel solo per il Parent Node: sul Nursery
      * appartiene al servizio, che deve poter rispondere anche con l'app chiusa.
      */
-    private val transport: StreamTransport? = if (store.role == Role.PARENT) {
-        WebRtcTransport(
-            context = application,
+    /**
+     * Il trasporto del Parent Node.
+     *
+     * Non e' piu' deciso una volta per tutte alla costruzione: da quando il
+     * ruolo si puo' cambiare senza rifare il pairing, un `val` avrebbe lasciato
+     * un Parent appena diventato tale senza trasporto, e l'ascolto a richiesta
+     * avrebbe taciuto senza dire perche'.
+     */
+    private var transport: StreamTransport? = null
+    private var transportJob: Job? = null
+
+    private fun rebuildTransport() {
+        transportJob?.cancel()
+        transportJob = null
+        val previous = transport
+        transport = null
+        viewModelScope.launch { previous?.stop() }
+
+        if (store.role != Role.PARENT) return
+
+        val stream = WebRtcTransport(
+            context = getApplication(),
             role = Role.PARENT,
             sendSignal = { peerId, payload -> client.send(HubProtocol.signal(peerId, payload)) },
             onRemoteVideo = { track -> RemoteVideo.set(track) },
         )
-    } else {
-        null
+        transport = stream
+        transportJob = viewModelScope.launch {
+            stream.state.collect { streamState ->
+                _uiState.update { current ->
+                    if (current is UiState.Session) current.copy(stream = streamState) else current
+                }
+            }
+        }
     }
 
     private val _uiState = MutableStateFlow<UiState>(initialState())
@@ -133,16 +176,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // che deve restare in piedi.
             if (!store.continuousListening) connect()
             requestFcmToken()
-
-            transport?.let { stream ->
-                viewModelScope.launch {
-                    stream.state.collect { streamState ->
-                        _uiState.update { current ->
-                            if (current is UiState.Session) current.copy(stream = streamState) else current
-                        }
-                    }
-                }
-            }
+            rebuildTransport()
         }
 
         resumeIfInterrupted()
@@ -184,8 +218,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             deviceName = store.deviceName.orEmpty(),
             connection = ConnectionState.Disconnected,
         )
+        store.hubUrl.isNullOrBlank() -> UiState.HubSetup(DEFAULT_HUB_URL)
         store.role != null -> UiState.Pairing(store.role!!, store.hubUrl.orEmpty())
         else -> UiState.ChoosingRole
+    }
+
+    /** Registra l'Hub e passa alla scelta del ruolo. */
+    fun setHubUrl(url: String) {
+        val trimmed = url.trim().trimEnd('/')
+        if (trimmed.isBlank()) return
+        store.hubUrl = trimmed
+        _uiState.value = if (store.role != null) {
+            UiState.Pairing(store.role!!, trimmed)
+        } else {
+            UiState.ChoosingRole
+        }
+    }
+
+    /** Torna a chiedere l'indirizzo: l'Hub è stato spostato, o era sbagliato. */
+    fun changeHub() {
+        _uiState.value = UiState.HubSetup(store.hubUrl ?: DEFAULT_HUB_URL)
     }
 
     fun selectRole(role: Role) {
@@ -193,8 +245,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = UiState.Pairing(role, store.hubUrl.orEmpty())
     }
 
-    fun pair(hubUrl: String, code: String, name: String) {
+    fun pair(code: String, name: String) {
         val role = store.role ?: return
+        val hubUrl = store.hubUrl.orEmpty()
         _uiState.value = UiState.Pairing(role, hubUrl, inProgress = true)
 
         viewModelScope.launch {
@@ -305,8 +358,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is HubMessage.Noise -> {
                 if (!alerts) return
                 if (!SeenEvents.markSeen(message.id)) return
-                notifier.notifyNoise(message.id)
-                alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+                notifier.notifyNoise(message.id, untilDismissed = store.insistOnAlert)
+                alerter.alert(
+                    vibrate = store.vibrateOnAlert,
+                    flash = store.flashOnAlert,
+                    untilDismissed = store.insistOnAlert,
+                )
             }
 
             is HubMessage.NurseryOffline -> {
@@ -483,6 +540,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setFlash(enabled: Boolean) { store.flashOnAlert = enabled }
 
+    val insistOnAlert: Boolean get() = store.insistOnAlert
+
+    fun setInsist(enabled: Boolean) { store.insistOnAlert = enabled }
+
     /** Fa sentire al genitore com'è l'avviso, prima che serva davvero. */
     fun testAlert() = alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
 
@@ -500,11 +561,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = UiState.Pairing(store.role ?: Role.PARENT, store.hubUrl.orEmpty())
     }
 
-    fun changeRole() {
+    /**
+     * Scollega davvero: il token viene buttato e servira un codice nuovo.
+     *
+     * L'indirizzo dell'Hub resta: e' una proprieta dell'impianto, non del
+     * dispositivo che ci sta attaccato.
+     */
+    fun unpair() {
         stopEverything()
         store.clearPairing()
         store.role = null
         _uiState.value = UiState.ChoosingRole
+    }
+
+    /** Torna alla sessione lasciando il ruolo com era. */
+    fun cancelRoleChange() {
+        _uiState.value = UiState.Session(
+            role = store.role ?: Role.PARENT,
+            deviceName = store.deviceName.orEmpty(),
+            connection = client.state.value,
+        )
+    }
+
+    /** Apre la schermata di cambio ruolo, che non richiede un nuovo codice. */
+    fun changeRole() {
+        val role = store.role ?: return
+        _uiState.value = UiState.ChangingRole(role, store.deviceName.orEmpty())
+    }
+
+    /**
+     * Cambia ruolo su un dispositivo gia accoppiato.
+     *
+     * Prima si ferma tutto: il servizio del Nursery e l'ascolto continuo
+     * appartengono a un ruolo che sta per non esistere piu, e lasciarli vivi
+     * significherebbe un microfono acceso per conto di nessuno.
+     */
+    fun applyRoleChange(role: Role, name: String) {
+        val url = store.hubUrl ?: return
+        val token = store.deviceToken ?: return
+        _uiState.value = UiState.ChangingRole(role, name, inProgress = true)
+
+        viewModelScope.launch {
+            client.changeRole(url, token, role, name)
+                .onSuccess {
+                    stopEverything()
+                    store.role = role
+                    store.deviceName = name
+                    rebuildTransport()
+                    _uiState.value = UiState.Session(
+                        role = role,
+                        deviceName = name,
+                        connection = ConnectionState.Disconnected,
+                    )
+                    if (role == Role.PARENT) connect()
+                }
+                .onFailure { failure ->
+                    Log.e(TAG, "cambio ruolo fallito: ${failure.message}")
+                    _uiState.value = UiState.ChangingRole(
+                        role,
+                        name,
+                        error = failure.message ?: "unknown",
+                    )
+                }
+        }
     }
 
     /**
@@ -525,6 +644,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MAX_EVENTS = 50
+        const val DEFAULT_HUB_URL = "https://crylog."
         const val TAG = "CryLogViewModel"
     }
 }

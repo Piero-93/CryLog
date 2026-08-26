@@ -1,0 +1,55 @@
+name: CI
+
+# Su ogni push e su ogni pull request. Il valore di una rete sta nell'essere
+# sempre tesa: una che si controlla a mano quando ci si ricorda non è una rete.
+on:
+  push:
+  pull_request:
+
+# Un push che arriva mentre il precedente è ancora in corso annulla quello
+# vecchio: interessa il verdetto sull'ultimo commit, non sulla storia.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hub:
+    name: Hub
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hub
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: hub/package-lock.json
+
+      - run: npm ci
+
+      # node:test, senza framework: le stesse dipendenze del runtime.
+      - run: npm test
+
+  android:
+    name: App Android
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # google-services.json resta fuori dal repo, e il build lo sa: il plugin
+      # Firebase si applica solo se il file c'è. Qui non c'è, e va bene così —
+      # si compila lo stesso, senza notifiche push.
+      - run: ./gradlew assembleDebug --no-daemon

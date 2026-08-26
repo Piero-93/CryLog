@@ -29,7 +29,7 @@ const SILENT = { info() {}, warn() {}, error() {} }
 export function createHub({ config, db, adminToken, fcm = createFcmSender(), log = console, now = Date.now }) {
   const startedAt = now()
   const registry = createRegistry()
-  const handle = createHttpHandler({ db, config, adminToken, registry, startedAt, now })
+  const handle = createHttpHandler({ db, config, adminToken, registry, log, startedAt, now })
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err) => {

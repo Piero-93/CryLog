@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -93,20 +94,31 @@ fun CryLogApp(
     modifier: Modifier = Modifier,
 ) {
     when (state) {
-        is UiState.ChoosingRole -> RoleSelection(viewModel::selectRole, modifier)
+        is UiState.HubSetup -> HubSetupForm(state, viewModel::setHubUrl, modifier)
+
+        is UiState.ChangingRole -> {
+            BackHandler(enabled = !state.inProgress) { viewModel.cancelRoleChange() }
+            RoleChangeForm(state, viewModel::applyRoleChange, viewModel::cancelRoleChange, modifier)
+        }
+
+        is UiState.ChoosingRole -> RoleSelection(
+            onSelectRole = viewModel::selectRole,
+            onChangeHub = viewModel::changeHub,
+            modifier = modifier,
+        )
 
         is UiState.Pairing -> {
             // Senza questo il tasto indietro chiuderebbe l'app: le schermate sono
             // stati del ViewModel, non destinazioni di navigazione.
             BackHandler(enabled = !state.inProgress) { viewModel.changeRole() }
-            PairingForm(state, viewModel::pair, viewModel::changeRole, modifier)
+            PairingForm(state, viewModel::pair, viewModel::unpair, viewModel::changeHub, modifier)
         }
 
         is UiState.Session -> when (state.role) {
             Role.NURSERY -> NurseryScreen(
                 viewModel = viewModel,
                 deviceName = state.deviceName,
-                onUnpair = viewModel::changeRole,
+                onUnpair = viewModel::unpair,
                 modifier = modifier,
             )
 
@@ -115,6 +127,7 @@ fun CryLogApp(
                 state = state,
                 onReconnect = viewModel::connect,
                 onChangeRole = viewModel::changeRole,
+                onUnpair = viewModel::unpair,
                 modifier = modifier,
             )
         }
@@ -122,7 +135,11 @@ fun CryLogApp(
 }
 
 @Composable
-private fun RoleSelection(onSelectRole: (Role) -> Unit, modifier: Modifier = Modifier) {
+private fun RoleSelection(
+    onSelectRole: (Role) -> Unit,
+    onChangeHub: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
@@ -148,6 +165,134 @@ private fun RoleSelection(onSelectRole: (Role) -> Unit, modifier: Modifier = Mod
             "Si può cambiare in seguito, rifacendo il pairing.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        TextButton(onClick = onChangeHub) { Text("Cambia indirizzo dell'Hub") }
+    }
+}
+
+/**
+ * Cambio di ruolo su un dispositivo gia' accoppiato.
+ *
+ * Nessun codice da digitare: il token che il telefono ha gia' e' la prova di
+ * essere quel dispositivo. Si cambia anche il nome, perche' "Cameretta" e
+ * "Telefono" non si scambiano da soli.
+ */
+@Composable
+private fun RoleChangeForm(
+    state: UiState.ChangingRole,
+    onApply: (Role, String) -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var role by rememberSaveable { mutableStateOf(state.current) }
+    var name by rememberSaveable { mutableStateOf(state.name) }
+
+    Column(
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text("Cambia ruolo", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Il dispositivo resta accoppiato: non serve un codice nuovo.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        RoleCard(
+            title = "Nursery Node",
+            description = "Sta nella cameretta. Ascolta e avvisa quando sente un rumore.",
+            onClick = { role = Role.NURSERY; name = "Cameretta" },
+        )
+        RoleCard(
+            title = "Parent Node",
+            description = "Sta con te. Riceve le notifiche e può aprire lo stream.",
+            onClick = { role = Role.PARENT; name = "Telefono" },
+        )
+
+        Text(
+            "Scelto: ${if (role == Role.NURSERY) "Nursery Node" else "Parent Node"}",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Nome del dispositivo") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (state.error != null) {
+            Text(
+                pairingError(state.error),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        Button(
+            onClick = { onApply(role, name.trim()) },
+            enabled = !state.inProgress && name.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (state.inProgress) {
+                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+            } else {
+                Text("Applica")
+            }
+        }
+
+        TextButton(onClick = onCancel) { Text("Annulla") }
+    }
+}
+
+/**
+ * L'indirizzo dell'Hub, chiesto una volta sola.
+ *
+ * Prima del ruolo, perché è una proprietà dell'impianto e non del ruolo:
+ * chiederlo di nuovo a ogni cambio faceva sembrare che dipendesse da quello.
+ */
+@Composable
+private fun HubSetupForm(
+    state: UiState.HubSetup,
+    onConfirm: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var url by rememberSaveable { mutableStateOf(state.url) }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+    ) {
+        Text("CryLog", style = MaterialTheme.typography.headlineLarge)
+        Text(
+            "Dove si trova il tuo Hub?",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+
+        OutlinedTextField(
+            value = url,
+            onValueChange = { url = it },
+            label = { Text("Indirizzo dell'Hub") },
+            supportingText = { Text("es. https://crylog.tuo-tailnet.ts.net") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Text(
+            "Si chiede una volta sola: vale per questo telefono, qualunque ruolo gli darai.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Button(
+            onClick = { onConfirm(url) },
+            enabled = url.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Avanti")
+        }
     }
 }
 
@@ -168,11 +313,11 @@ private fun RoleCard(title: String, description: String, onClick: () -> Unit) {
 @Composable
 private fun PairingForm(
     state: UiState.Pairing,
-    onPair: (String, String, String) -> Unit,
+    onPair: (String, String) -> Unit,
     onChangeRole: () -> Unit,
+    onChangeHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var hubUrl by rememberSaveable { mutableStateOf(state.hubUrl.ifBlank { "https://crylog." }) }
     var code by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable {
         mutableStateOf(if (state.role == Role.NURSERY) "Cameretta" else "Telefono")
@@ -187,14 +332,10 @@ private fun PairingForm(
             "Ruolo scelto: ${if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node"}",
             style = MaterialTheme.typography.bodyMedium,
         )
-
-        OutlinedTextField(
-            value = hubUrl,
-            onValueChange = { hubUrl = it },
-            label = { Text("Indirizzo dell'Hub") },
-            supportingText = { Text("es. https://crylog.tuo-tailnet.ts.net") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        Text(
+            state.hubUrl,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Text("Codice di pairing", style = MaterialTheme.typography.bodyMedium)
@@ -222,8 +363,8 @@ private fun PairingForm(
         }
 
         Button(
-            onClick = { onPair(hubUrl, PairingCode.format(code), name) },
-            enabled = !state.inProgress && PairingCode.isComplete(code) && hubUrl.isNotBlank() && name.isNotBlank(),
+            onClick = { onPair(PairingCode.format(code), name) },
+            enabled = !state.inProgress && PairingCode.isComplete(code) && name.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (state.inProgress) {
@@ -233,7 +374,10 @@ private fun PairingForm(
             }
         }
 
-        TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
+            TextButton(onClick = onChangeHub) { Text("Cambia Hub") }
+        }
     }
 }
 
@@ -244,6 +388,8 @@ private fun pairingError(code: String): String = when (code) {
     "expired" -> "Codice scaduto. I codici durano dieci minuti: generane uno nuovo."
     "invalid_code_format" -> "Il codice deve essere di otto caratteri."
     "invalid_name" -> "Il nome non può essere vuoto."
+    "invalid_role" -> "Ruolo non riconosciuto dall'Hub."
+    "unauthorized" -> "L'Hub non riconosce questo dispositivo. Prova a scollegarlo e rifare il pairing."
     else -> "Pairing fallito: $code"
 }
 
@@ -253,6 +399,7 @@ private fun SessionScreen(
     state: UiState.Session,
     onReconnect: () -> Unit,
     onChangeRole: () -> Unit,
+    onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var confirmingUnpair by rememberSaveable { mutableStateOf(false) }
@@ -275,6 +422,7 @@ private fun SessionScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> micGranted = granted; wantTalkBack = granted }
     var flash by rememberSaveable { mutableStateOf(viewModel.flashOnAlert) }
+    var insist by rememberSaveable { mutableStateOf(viewModel.insistOnAlert) }
 
     Column(
         // La schermata non ci sta in altezza: senza scorrimento la cronologia
@@ -351,6 +499,27 @@ private fun SessionScreen(
                 onCheckedChange = { flash = it; viewModel.setFlash(it) },
             )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Insisti finché non lo vedo", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "L'avviso si ripete ogni tre secondi finché non scarti la notifica, " +
+                        "al massimo per cinque minuti. Un solo impulso alle quattro del " +
+                        "mattino non lo sente nessuno.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = insist,
+                onCheckedChange = { insist = it; viewModel.setInsist(it) },
+            )
+        }
+
         OutlinedButton(onClick = viewModel::testAlert) { Text("Prova l'avviso") }
 
         HorizontalDivider()
@@ -372,7 +541,10 @@ private fun SessionScreen(
         }
 
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = { confirmingUnpair = true }) { Text("Scollega questo dispositivo") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
+            TextButton(onClick = { confirmingUnpair = true }) { Text("Scollega") }
+        }
     }
 
     if (confirmingUnpair) {
@@ -388,7 +560,7 @@ private fun SessionScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmingUnpair = false
-                    onChangeRole()
+                    onUnpair()
                 }) { Text("Scollega") }
             },
             dismissButton = {

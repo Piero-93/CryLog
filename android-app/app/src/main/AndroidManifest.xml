@@ -65,6 +65,10 @@
             android:foregroundServiceType="mediaPlayback" />
 
         <receiver
+            android:name=".parent.AlertDismissReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".nursery.BootReceiver"
             android:exported="true">
             <intent-filter>

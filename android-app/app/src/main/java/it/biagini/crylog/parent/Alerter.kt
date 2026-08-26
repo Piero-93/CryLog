@@ -47,10 +47,39 @@ import kotlinx.coroutines.launch
 class Alerter(private val context: Context, private val scope: CoroutineScope) {
 
     private var flashJob: Job? = null
+    private var loopJob: Job? = null
 
-    fun alert(vibrate: Boolean, flash: Boolean) {
-        if (vibrate) vibrate()
-        if (flash) flash()
+    /**
+     * Avvisa una volta, oppure insiste finché qualcuno non se ne accorge.
+     *
+     * Con [untilDismissed] l'avviso si ripete fino a che la notifica non viene
+     * scartata: un singolo impulso alle quattro del mattino, con il telefono
+     * in un'altra stanza, non lo sente nessuno.
+     *
+     * C'è comunque un tetto. "Finché non lo scarti" preso alla lettera
+     * significa un telefono che vibra fino a scaricarsi, e un avviso che ha
+     * consumato la batteria è un avviso che non c'è più.
+     */
+    fun alert(vibrate: Boolean, flash: Boolean, untilDismissed: Boolean = false) {
+        if (!untilDismissed) {
+            if (vibrate) vibrate()
+            if (flash) flash()
+            return
+        }
+
+        AlertState.arm()
+        loopJob?.cancel()
+        loopJob = scope.launch {
+            val until = System.currentTimeMillis() + MAX_INSIST_MS
+            while (!AlertState.isDismissed && System.currentTimeMillis() < until) {
+                if (vibrate) vibrate()
+                if (flash) flash()
+                delay(INSIST_EVERY_MS)
+            }
+            stopVibration()
+            flashJob?.cancel()
+            runCatching { torchOff() }
+        }
     }
 
     private fun vibrate() {
@@ -100,8 +129,31 @@ class Alerter(private val context: Context, private val scope: CoroutineScope) {
     }
 
     fun stop() {
+        AlertState.dismiss()
+        loopJob?.cancel()
+        loopJob = null
         flashJob?.cancel()
         flashJob = null
+        stopVibration()
+        runCatching { torchOff() }
+    }
+
+    private fun stopVibration() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(VibratorManager::class.java)?.cancel()
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Vibrator::class.java)?.cancel()
+        }
+    }
+
+    private fun torchOff() {
+        val manager = context.getSystemService(CameraManager::class.java) ?: return
+        val cameraId = manager.cameraIdList.firstOrNull { id ->
+            manager.getCameraCharacteristics(id)
+                .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } ?: return
+        manager.setTorchMode(cameraId, false)
     }
 
     private companion object {
@@ -110,5 +162,11 @@ class Alerter(private val context: Context, private val scope: CoroutineScope) {
         const val FLASH_BLINKS = 6
         const val FLASH_ON_MS = 200L
         const val FLASH_OFF_MS = 200L
+
+        /** Ogni quanto si ripete l'avviso insistente. */
+        const val INSIST_EVERY_MS = 3_000L
+
+        /** Tetto all'insistenza: oltre, l'unica cosa che si ottiene è scaricare. */
+        const val MAX_INSIST_MS = 5 * 60_000L
     }
 }

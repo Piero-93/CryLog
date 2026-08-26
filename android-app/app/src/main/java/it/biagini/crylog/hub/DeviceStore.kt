@@ -106,6 +106,16 @@ class DeviceStore(context: Context) {
         get() = prefs.getBoolean(KEY_FLASH, false)
         set(value) = prefs.edit().putBoolean(KEY_FLASH, value).apply()
 
+    /**
+     * Se l'avviso deve insistere invece di suonare una volta sola.
+     *
+     * Spento per default: chi ha il telefono in mano non vuole essere inseguito
+     * da una vibrazione che ha già visto.
+     */
+    var insistOnAlert: Boolean
+        get() = prefs.getBoolean(KEY_INSIST, false)
+        set(value) = prefs.edit().putBoolean(KEY_INSIST, value).apply()
+
     var vibrateOnAlert: Boolean
         get() = prefs.getBoolean(KEY_VIBRATE, true)
         set(value) = prefs.edit().putBoolean(KEY_VIBRATE, value).apply()
@@ -150,6 +160,7 @@ class DeviceStore(context: Context) {
         const val KEY_CONTINUOUS = "continuous_listening"
         const val KEY_FLASH = "flash_on_alert"
         const val KEY_VIBRATE = "vibrate_on_alert"
+        const val KEY_INSIST = "insist_on_alert"
         const val KEY_FCM_TOKEN = "fcm_token_pending"
         const val KEY_FCM_SENT = "fcm_token_sent"
     }
