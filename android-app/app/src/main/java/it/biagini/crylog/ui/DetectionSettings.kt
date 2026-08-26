@@ -66,10 +66,11 @@ fun PresetSelector(
     onSelect: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+    // Titolo e descrizione li mette SettingRow: prima ogni controllo si
+    // scriveva la propria intestazione, e ne uscivano tre stili diversi per la
+    // stessa identica cosa.
+    SettingRow(title = title, description = description) {
+        SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
             presets.forEachIndexed { index, preset ->
                 SegmentedButton(
                     selected = preset.valueMs == selectedMs,
@@ -80,12 +81,5 @@ fun PresetSelector(
                 }
             }
         }
-
-        Text(
-            description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
     }
 }

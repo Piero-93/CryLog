@@ -14,4 +14,11 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_art" />
     <foreground android:drawable="@android:color/transparent" />
+    <!--
+      Livello monochrome per il tema dinamico di Android 13: il sistema tinge
+      questa silhouette con i colori dell'utente. Ricavata dall'arte per
+      luminanza, e rimpicciolita nella safe zone da 66dp perche' il monochrome
+      segue le regole del primo piano, non quelle dello sfondo.
+    -->
+    <monochrome android:drawable="@drawable/ic_launcher_mono" />
 </adaptive-icon>

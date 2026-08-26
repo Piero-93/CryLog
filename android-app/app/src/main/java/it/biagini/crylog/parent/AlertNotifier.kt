@@ -42,7 +42,7 @@ import it.biagini.crylog.R
  */
 class AlertNotifier(private val context: Context) {
 
-    fun notifyNoise(eventId: String) {
+    fun notifyNoise(eventId: String, untilDismissed: Boolean = false) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         ensureChannel(manager)
 
@@ -54,14 +54,39 @@ class AlertNotifier(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = Notification.Builder(context, CHANNEL_ID)
+        // Scartare la notifica è il modo di dire "l'ho visto": senza, un avviso
+        // che insiste non avrebbe come fermarsi se non con il tempo.
+        val dismiss = PendingIntent.getBroadcast(
+            context,
+            eventId.hashCode(),
+            AlertDismissReceiver.intent(context),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        val builder = Notification.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.alert_title))
             .setContentText(context.getString(R.string.alert_text))
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentIntent(open)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_ALARM)
-            .build()
+
+        if (untilDismissed) {
+            builder
+                .setDeleteIntent(dismiss)
+                .addAction(
+                    Notification.Action.Builder(
+                        null,
+                        context.getString(R.string.alert_seen),
+                        dismiss,
+                    ).build(),
+                )
+                // Aprire l'app conta come averlo visto, quindi la notifica se ne
+                // va da sola: l'azione serve a chi non vuole aprirla.
+                .setOngoing(false)
+        }
+
+        val notification = builder.build()
 
         // Un id stabile per evento: se la stessa notifica arriva due volte
         // sostituisce la precedente invece di impilarsi.

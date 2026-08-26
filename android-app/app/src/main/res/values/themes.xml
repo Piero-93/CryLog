@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.CryLog" parent="android:Theme.DeviceDefault.DayNight" />
+    <!--
+      NoActionBar: la barra del titolo disegnava "CryLog" in cima a ogni
+      schermata, sopra all'intestazione che quella riga la usa per dire
+      qualcosa. Le schermate se la disegnano da se', con Compose.
+    -->
+    <style name="Theme.CryLog" parent="android:Theme.DeviceDefault.DayNight">
+        <!-- La variante NoActionBar di DayNight non esiste: si spegne qui. -->
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+    </style>
 </resources>

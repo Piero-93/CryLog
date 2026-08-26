@@ -85,6 +85,67 @@ class HubClient(private val scope: CoroutineScope) {
     /** Cresce a ogni tentativo: i callback di un tentativo superato vanno ignorati. */
     private var sessionId = 0
 
+    /**
+     * Chiede all'Hub se il codice va bene, senza consumarlo.
+     *
+     * Serve a far scoprire un codice sbagliato dove il codice si scrive: senza,
+     * l'errore arrivava due schermate piu' avanti, su una pagina che il campo
+     * da correggere non ce l'ha.
+     */
+    suspend fun verifyCode(hubUrl: String, code: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("code", code)
+                .toString()
+                .toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("${hubUrl.trimEnd('/')}/pairing-codes/verify")
+                .post(body)
+                .build()
+
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val payload = JSONObject(response.body?.string().orEmpty())
+                        error(payload.optString("error", "http_${response.code}"))
+                    }
+                }
+            }
+        }
+
+    /**
+     * Cambia il ruolo di un dispositivo gia accoppiato.
+     *
+     * Il token che si ha in mano e' gia' la prova di essere quel dispositivo:
+     * obbligare a ricominciare da un codice nuovo aggiungeva passaggi, non
+     * sicurezza. L'Hub chiude le connessioni aperte, che portano ancora il
+     * ruolo vecchio, e il client si riconnette da solo.
+     */
+    suspend fun changeRole(hubUrl: String, token: String, role: Role, name: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("role", role.wireName)
+                .put("name", name)
+                .toString()
+                .toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("${hubUrl.trimEnd('/')}/device/role")
+                .header("Authorization", "Bearer $token")
+                .post(body)
+                .build()
+
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val payload = JSONObject(response.body?.string().orEmpty())
+                        error(payload.optString("error", "http_${response.code}"))
+                    }
+                }
+            }
+        }
+
     suspend fun pair(hubUrl: String, code: String, role: Role, name: String): Result<PairedDevice> =
         withContext(Dispatchers.IO) {
             val body = JSONObject()

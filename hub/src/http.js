@@ -65,7 +65,7 @@ export const bearerToken = (req) => {
   return token.length > 0 ? token : null
 }
 
-export function createHttpHandler({ db, config, adminToken, registry, startedAt, now = Date.now }) {
+export function createHttpHandler({ db, config, adminToken, registry, log, startedAt, now = Date.now }) {
   const requireDevice = (req) => {
     const token = bearerToken(req)
     if (!token) return null
@@ -139,6 +139,29 @@ export function createHttpHandler({ db, config, adminToken, registry, startedAt,
       return send(res, 201, { deviceId: device.id, role: device.role, name: device.name, token })
     }
 
+    // Dice se un codice va bene, senza consumarlo.
+    //
+    // Esiste per far scoprire un codice sbagliato dove il codice si scrive, e
+    // non due schermate piu' avanti. Non crea niente e non consuma niente: se
+    // l'utente abbandona, l'Hub resta come prima.
+    //
+    // Nota: e' un oracolo, dice se un codice esiste. Lo e' gia' /pair, che pero'
+    // consuma quando indovina; qui si puo' sondare a costo zero. Su un Hub
+    // raggiungibile solo dentro la tailnet il rischio e' accettabile, ma se un
+    // giorno l'Hub finisse esposto questo endpoint andrebbe limitato.
+    if (method === 'POST' && path === '/pairing-codes/verify') {
+      const parsed = await readJsonBody(req)
+      if (!parsed.ok) return send(res, 400, { error: parsed.error })
+
+      const normalized = normalizePairingCode(parsed.body?.code)
+      if (!normalized) return send(res, 400, { error: 'invalid_code_format' })
+
+      const check = checkPairingCode(db.findPairingCode(hashSecret(normalized)), now())
+      if (!check.ok) return send(res, 403, { error: check.reason })
+
+      return send(res, 200, { valid: true })
+    }
+
     if (method === 'GET' && path === '/devices') {
       if (!requireDevice(req) && !isAdmin(req)) return send(res, 401, { error: 'unauthorized' })
       const devices = db.listDevices().map((d) => ({
@@ -157,6 +180,36 @@ export function createHttpHandler({ db, config, adminToken, registry, startedAt,
       return db.deleteDevice(id)
         ? send(res, 200, { deleted: id })
         : send(res, 404, { error: 'not_found' })
+    }
+
+    // Cambiare ruolo senza rifare il pairing.
+    //
+    // Il dispositivo e' gia' noto e ha gia' il suo token: obbligarlo a
+    // ricominciare da un codice nuovo non aggiungeva sicurezza, aggiungeva
+    // solo passaggi. Conseguenza accettata: un token rubato ora permette
+    // entrambi i ruoli invece di uno solo.
+    if (method === 'POST' && path === '/device/role') {
+      const device = requireDevice(req)
+      if (!device) return send(res, 401, { error: 'unauthorized' })
+
+      const parsed = await readJsonBody(req)
+      if (!parsed.ok) return send(res, 400, { error: parsed.error })
+
+      const { role, name: rawName } = parsed.body
+      const name = typeof rawName === 'string' ? rawName.trim() : ''
+      if (!ROLES.includes(role)) return send(res, 400, { error: 'invalid_role' })
+      if (name.length === 0 || name.length > 64) return send(res, 400, { error: 'invalid_name' })
+
+      db.setRole(device.id, role, name)
+      log.info(`ruolo cambiato: "${device.name}" ${device.role} -> ${role} ("${name}")`)
+
+      // Le connessioni aperte portano ancora il ruolo vecchio, e il fan-out
+      // smista per ruolo. Chiuderle e' piu' semplice che mutarle a caldo, e il
+      // client si riconnette da solo: se era un Nursery, il close avvisa anche
+      // i Parent che non c'e' piu'.
+      for (const connection of registry.listByDevice(device.id)) connection.terminate()
+
+      return send(res, 200, { id: device.id, role, name })
     }
 
     if (method === 'GET' && path === '/events') {

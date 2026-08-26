@@ -95,6 +95,7 @@ export function openDatabase(dataDir) {
     deleteDevice: db.prepare('DELETE FROM devices WHERE id = ?'),
     touchDevice: db.prepare('UPDATE devices SET last_seen = ? WHERE id = ?'),
     setFcmToken: db.prepare('UPDATE devices SET fcm_token = ? WHERE id = ?'),
+    setRole: db.prepare('UPDATE devices SET role = ?, name = ? WHERE id = ?'),
 
     insertPairingCode: db.prepare('INSERT INTO pairing_codes (code_hash, created_at, expires_at) VALUES (?, ?, ?)'),
     pairingCodeByHash: db.prepare('SELECT * FROM pairing_codes WHERE code_hash = ?'),
@@ -134,6 +135,10 @@ export function openDatabase(dataDir) {
     deleteDevice: (id) => stmt.deleteDevice.run(id).changes > 0,
     touchDevice: (id, at) => { stmt.touchDevice.run(at, id) },
     setFcmToken: (id, token) => { stmt.setFcmToken.run(token, id) },
+
+    // Ruolo e nome cambiano insieme: "Cameretta" e "Telefono" non si scambiano
+    // da soli, e un Nursery che si chiama Telefono confonde chi legge il log.
+    setRole: (id, role, name) => { stmt.setRole.run(role, name, id) },
 
     createPairingCode: ({ codeHash, createdAt, expiresAt }) => {
       stmt.insertPairingCode.run(codeHash, createdAt, expiresAt)

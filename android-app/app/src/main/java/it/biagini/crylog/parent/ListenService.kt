@@ -345,8 +345,12 @@ class ListenService : Service() {
         when (message) {
             is HubMessage.Noise -> {
                 if (!SeenEvents.markSeen(message.id)) return
-                notifier.notifyNoise(message.id)
-                alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+                notifier.notifyNoise(message.id, untilDismissed = store.insistOnAlert)
+                alerter.alert(
+                    vibrate = store.vibrateOnAlert,
+                    flash = store.flashOnAlert,
+                    untilDismissed = store.insistOnAlert,
+                )
             }
 
             is HubMessage.NurseryOnline -> {

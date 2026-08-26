@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.unit.dp
 import it.biagini.crylog.core.RmsNoiseDetector
 import it.biagini.crylog.nursery.NoiseMonitor
+import androidx.compose.material3.LocalContentColor
 
 /**
  * Livello degli ultimi trenta secondi, con la soglia disegnata sopra.
@@ -57,17 +58,22 @@ fun LevelChart(
     thresholdDb: Double,
     modifier: Modifier = Modifier,
 ) {
-    val barColor = MaterialTheme.colorScheme.primary
+    // Dentro l'eroe il grafico non puo' avere un fondo suo: userebbe un grigio
+    // che con il contenitore verde o rosso non c'entra niente. Si appoggia al
+    // colore del contenuto, con l'alpha a fare il lavoro.
+    val barColor = LocalContentColor.current
     val overColor = MaterialTheme.colorScheme.error
-    val thresholdColor = MaterialTheme.colorScheme.outline
-    val surface = MaterialTheme.colorScheme.surfaceVariant
+    val thresholdColor = LocalContentColor.current.copy(alpha = 0.45f)
+    // Un velo del colore del contenuto, non un grigio fisso: dentro un
+    // contenitore verde o rosso un grigio non c'entrerebbe niente.
+    val surface = LocalContentColor.current.copy(alpha = 0.08f)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(120.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(MaterialTheme.shapes.small)
                 .background(surface)
                 .padding(4.dp),
         ) {

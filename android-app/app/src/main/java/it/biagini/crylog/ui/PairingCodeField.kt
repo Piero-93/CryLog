@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LocalTextStyle
@@ -46,13 +48,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import it.biagini.crylog.core.PairingCode
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Campo a caselle per il codice di pairing. Un solo campo di testo invisibile
@@ -66,34 +74,68 @@ fun PairingCodeField(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    // Il campo tiene anche la posizione del cursore, non solo i caratteri:
+    // serve a poter toccare una cifra sbagliata e correggere quella, invece di
+    // cancellare tutto quello che viene dopo.
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (field.text != value) {
+        field = TextFieldValue(value, TextRange(value.length))
+    }
 
     BasicTextField(
-        value = value,
-        onValueChange = { onValueChange(PairingCode.sanitize(it)) },
-        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        value = field,
+        onValueChange = { updated ->
+            val clean = PairingCode.sanitize(updated.text)
+            val caret = updated.selection.end.coerceIn(0, clean.length)
+            field = TextFieldValue(clean, TextRange(caret))
+            onValueChange(clean)
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused },
         textStyle = LocalTextStyle.current.copy(color = androidx.compose.ui.graphics.Color.Transparent),
         cursorBrush = SolidColor(androidx.compose.ui.graphics.Color.Transparent),
         singleLine = true,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
         decorationBox = {
+            // Le caselle si dividono la larghezza disponibile invece di averne
+            // una fissa: a 48dp l'una, otto piu' i distanziatori uscivano dal
+            // bordo di qualunque telefono. I due gruppi da quattro si leggono
+            // dallo spazio piu' largo al centro, senza spendere un trattino.
+            // start e non end: toccando una cifra la si seleziona da index a
+            // index+1, quindi `end` e' gia' la casella dopo ed era quella che si
+            // accendeva. Con il cursore semplice start ed end coincidono, quindi
+            // durante la digitazione normale non cambia nulla.
+            val caret = field.selection.start.coerceAtMost(PairingCode.LENGTH - 1)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 repeat(PairingCode.LENGTH) { index ->
-                    if (index == PairingCode.LENGTH / 2) {
-                        Text(
-                            "-",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(horizontal = 2.dp),
-                        )
-                    }
+                    if (index == PairingCode.LENGTH / 2) Spacer(Modifier.width(8.dp))
+
                     CodeCell(
                         char = value.getOrNull(index),
-                        // La casella attiva è quella dove finirà il prossimo carattere.
-                        highlighted = focused && index == value.length.coerceAtMost(PairingCode.LENGTH - 1),
+                        // La casella attiva è quella dove finirà il prossimo
+                        // carattere.
+                        highlighted = focused && index == caret,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            // Toccando una cifra la si seleziona: il carattere
+                            // digitato prende il suo posto, invece di infilarsi
+                            // in coda.
+                            val end = (index + 1).coerceAtMost(value.length)
+                            field = TextFieldValue(
+                                value,
+                                TextRange(index.coerceAtMost(value.length), end),
+                            )
+                            focusRequester.requestFocus()
+                        },
                     )
                 }
             }
@@ -102,28 +144,55 @@ fun PairingCodeField(
 }
 
 @Composable
-private fun CodeCell(char: Char?, highlighted: Boolean) {
+private fun CodeCell(
+    char: Char?,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // La cornice c'e' sempre, anche sulle caselle vuote: sono il posto dove
+    // andra' qualcosa, e senza bordo non si capisce quanti caratteri servono.
     val borderColor = when {
         highlighted -> MaterialTheme.colorScheme.primary
-        char != null -> MaterialTheme.colorScheme.outline
-        else -> MaterialTheme.colorScheme.outlineVariant
+        char != null -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.outline
     }
 
     Box(
-        modifier = Modifier
-            .width(36.dp)
-            .height(48.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+        modifier = modifier
+            // La larghezza la decide la riga: quattro caselle si dividono lo
+            // spazio disponibile, e restano comode da toccare su ogni schermo.
+            .height(56.dp)
+            // Senza indicazione visiva del tocco: la casella ha gia' il suo
+            // bordo che si accende, e un'onda sopra sarebbe rumore.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .background(
+                if (highlighted) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                },
+                MaterialTheme.shapes.small,
+            )
             .border(
                 width = if (highlighted) 2.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(8.dp),
+                shape = MaterialTheme.shapes.small,
             ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = char?.toString().orEmpty(),
             style = MaterialTheme.typography.titleLarge,
+            color = if (highlighted) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             textAlign = TextAlign.Center,
         )
     }

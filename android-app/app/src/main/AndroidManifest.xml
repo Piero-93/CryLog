@@ -16,6 +16,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+         Senza questa dichiarazione l'app non compare nemmeno nell'elenco
+         "Accesso a Non disturbare" delle impostazioni: il permesso lo concede
+         l'utente da li', ma per finire in quell'elenco bisogna chiederlo qui.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!-- Parent Node: avvisi percepibili a telefono silenzioso o a faccia in giù. -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -63,6 +69,10 @@
             android:name=".parent.ListenService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name=".parent.AlertDismissReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".nursery.BootReceiver"
