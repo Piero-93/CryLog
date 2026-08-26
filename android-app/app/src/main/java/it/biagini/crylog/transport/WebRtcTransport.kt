@@ -53,6 +53,7 @@ class WebRtcTransport(
     private var connection: PeerConnection? = null
     private var peerId: String? = null
     private var localAudio: AudioTrack? = null
+    private var remoteAudio: AudioTrack? = null
 
     /** Ricordato dalla richiesta: serve quando arriva l offerta, non prima. */
     private var wantTalkBack = false
@@ -252,6 +253,10 @@ class WebRtcTransport(
         // Il video arriva nel passo successivo: per ora la sessione è solo audio.
     }
 
+    override suspend fun setPlaybackEnabled(enabled: Boolean) {
+        remoteAudio?.setEnabled(enabled)
+    }
+
     override suspend fun setTalkBackEnabled(enabled: Boolean) {
         Log.i(TAG, "talk-back $enabled, traccia=${localAudio != null}")
         localAudio?.setEnabled(enabled)
@@ -273,6 +278,7 @@ class WebRtcTransport(
         connection?.dispose()
         connection = null
         localAudio = null
+        remoteAudio = null
         onRemoteVideo(null)
         pendingCandidates.clear()
         peerId = null
@@ -355,6 +361,7 @@ class WebRtcTransport(
                 }
             }
 
+            remoteAudio = track
             onRemoteAudio(track)
         }
 

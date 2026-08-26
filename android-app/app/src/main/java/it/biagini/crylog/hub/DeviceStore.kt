@@ -90,6 +90,16 @@ class DeviceStore(context: Context) {
         get() = prefs.getBoolean(KEY_ARMED, false)
         set(value) = prefs.edit().putBoolean(KEY_ARMED, value).apply()
 
+    /**
+     * Ascolto continuo sul Parent Node.
+     *
+     * Salvato perche il servizio deve poter ripartire da solo: se il sistema lo
+     * uccide per memoria, deve sapere che era acceso.
+     */
+    var continuousListening: Boolean
+        get() = prefs.getBoolean(KEY_CONTINUOUS, false)
+        set(value) = prefs.edit().putBoolean(KEY_CONTINUOUS, value).apply()
+
     // --- Avvisi (Parent Node) ---
 
     var flashOnAlert: Boolean
@@ -137,6 +147,7 @@ class DeviceStore(context: Context) {
         const val KEY_COOLDOWN = "noise_cooldown_ms"
         const val KEY_ARMED = "armed"
         const val KEY_AUDIO_ONLY = "audio_only"
+        const val KEY_CONTINUOUS = "continuous_listening"
         const val KEY_FLASH = "flash_on_alert"
         const val KEY_VIBRATE = "vibrate_on_alert"
         const val KEY_FCM_TOKEN = "fcm_token_pending"

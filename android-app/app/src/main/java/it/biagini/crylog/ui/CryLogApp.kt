@@ -56,6 +56,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -78,6 +80,7 @@ import it.biagini.crylog.core.HubMessage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
 import it.biagini.crylog.core.RmsNoiseDetector
+import it.biagini.crylog.parent.ContinuousListening
 import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.StreamLevel
 import it.biagini.crylog.core.TransportState
@@ -256,6 +259,7 @@ private fun SessionScreen(
     var wantVideo by rememberSaveable { mutableStateOf(false) }
     var wantTalkBack by rememberSaveable { mutableStateOf(false) }
     var talking by rememberSaveable { mutableStateOf(false) }
+    var continuous by rememberSaveable { mutableStateOf(viewModel.continuousListening) }
     var vibrate by rememberSaveable { mutableStateOf(viewModel.vibrateOnAlert) }
 
     // Il Parent Node non ha mai avuto bisogno del microfono: il permesso si
@@ -286,7 +290,15 @@ private fun SessionScreen(
 
         ConnectionBanner(state.connection, onReconnect)
 
-        ListenCard(
+        ContinuousCard(
+            enabled = continuous,
+            onEnabledChange = { on ->
+                continuous = on
+                viewModel.setContinuousListening(on)
+            },
+        )
+
+        if (!continuous) ListenCard(
             nurseryName = state.nurseryName,
             stream = state.stream,
             wantVideo = wantVideo,
@@ -543,6 +555,89 @@ private fun ListenCard(
             }
         }
     }
+}
+
+/**
+ * L'ascolto continuo: l'unico modo di sapere che il bambino sta bene senza
+ * tenere l'app aperta.
+ *
+ * Mentre e acceso l'ascolto a richiesta sparisce: la sessione e gia aperta, e
+ * due pulsanti che fanno la stessa cosa in modo diverso confondono e basta.
+ */
+@Composable
+private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit) {
+    val health by ContinuousListening.health.collectAsStateWithLifecycle()
+    val since by ContinuousListening.since.collectAsStateWithLifecycle()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                !enabled -> MaterialTheme.colorScheme.surfaceVariant
+                health == ContinuousListening.Health.LOST -> MaterialTheme.colorScheme.errorContainer
+                else -> MaterialTheme.colorScheme.secondaryContainer
+            },
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Ascolto continuo", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "L'audio resta aperto a schermo spento e con l'app chiusa. " +
+                            "Tieni il telefono in carica: una notte intera non sta in una batteria.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+
+            if (!enabled) return@Column
+
+            Text(
+                when (health) {
+                    ContinuousListening.Health.STARTING -> "Apertura della sessione…"
+                    ContinuousListening.Health.LISTENING -> "L'audio dalla cameretta sta arrivando"
+                    ContinuousListening.Health.RECOVERING -> "Audio fermo: sto riprovando"
+                    ContinuousListening.Health.LOST -> "Audio perso: controlla il Nursery Node"
+                    ContinuousListening.Health.PAUSED -> "In pausa: un'altra app sta usando l'audio"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            if (since != 0L) {
+                // Ricalcolato ogni minuto: un tempo fermo a "0 min" per tutta la
+                // notte direbbe l'opposto di quello che deve dire.
+                val now by produceState(System.currentTimeMillis(), since) {
+                    while (true) {
+                        value = System.currentTimeMillis()
+                        delay(60_000L)
+                    }
+                }
+                Text(
+                    "Acceso da ${elapsedSince(since, now)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            val history by StreamLevel.history.collectAsStateWithLifecycle()
+            // Lo stesso grafico dell'ascolto a richiesta: distingue una
+            // cameretta tranquilla da uno stream che non porta nulla.
+            LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+        }
+    }
+}
+
+private fun elapsedSince(startedAt: Long, now: Long): String {
+    val minutes = ((now - startedAt) / 60_000L).coerceAtLeast(0)
+    if (minutes < 60) return "$minutes min"
+    return "${minutes / 60} h ${minutes % 60} min"
 }
 
 @Composable
