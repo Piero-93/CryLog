@@ -86,6 +86,35 @@ class HubClient(private val scope: CoroutineScope) {
     private var sessionId = 0
 
     /**
+     * Chiede all'Hub se il codice va bene, senza consumarlo.
+     *
+     * Serve a far scoprire un codice sbagliato dove il codice si scrive: senza,
+     * l'errore arrivava due schermate piu' avanti, su una pagina che il campo
+     * da correggere non ce l'ha.
+     */
+    suspend fun verifyCode(hubUrl: String, code: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("code", code)
+                .toString()
+                .toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("${hubUrl.trimEnd('/')}/pairing-codes/verify")
+                .post(body)
+                .build()
+
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val payload = JSONObject(response.body?.string().orEmpty())
+                        error(payload.optString("error", "http_${response.code}"))
+                    }
+                }
+            }
+        }
+
+    /**
      * Cambia il ruolo di un dispositivo gia accoppiato.
      *
      * Il token che si ha in mano e' gia' la prova di essere quel dispositivo:

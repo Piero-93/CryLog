@@ -139,6 +139,29 @@ export function createHttpHandler({ db, config, adminToken, registry, log, start
       return send(res, 201, { deviceId: device.id, role: device.role, name: device.name, token })
     }
 
+    // Dice se un codice va bene, senza consumarlo.
+    //
+    // Esiste per far scoprire un codice sbagliato dove il codice si scrive, e
+    // non due schermate piu' avanti. Non crea niente e non consuma niente: se
+    // l'utente abbandona, l'Hub resta come prima.
+    //
+    // Nota: e' un oracolo, dice se un codice esiste. Lo e' gia' /pair, che pero'
+    // consuma quando indovina; qui si puo' sondare a costo zero. Su un Hub
+    // raggiungibile solo dentro la tailnet il rischio e' accettabile, ma se un
+    // giorno l'Hub finisse esposto questo endpoint andrebbe limitato.
+    if (method === 'POST' && path === '/pairing-codes/verify') {
+      const parsed = await readJsonBody(req)
+      if (!parsed.ok) return send(res, 400, { error: parsed.error })
+
+      const normalized = normalizePairingCode(parsed.body?.code)
+      if (!normalized) return send(res, 400, { error: 'invalid_code_format' })
+
+      const check = checkPairingCode(db.findPairingCode(hashSecret(normalized)), now())
+      if (!check.ok) return send(res, 403, { error: check.reason })
+
+      return send(res, 200, { valid: true })
+    }
+
     if (method === 'GET' && path === '/devices') {
       if (!requireDevice(req) && !isAdmin(req)) return send(res, 401, { error: 'unauthorized' })
       const devices = db.listDevices().map((d) => ({

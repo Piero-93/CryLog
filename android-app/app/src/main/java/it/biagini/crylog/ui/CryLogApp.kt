@@ -104,6 +104,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.LocalContentColor
 
 @Composable
 fun CryLogApp(
@@ -112,24 +113,40 @@ fun CryLogApp(
     modifier: Modifier = Modifier,
 ) {
     when (state) {
-        is UiState.HubSetup -> HubSetupForm(state, viewModel::setHubUrl, modifier)
-
         is UiState.ChangingRole -> {
             BackHandler(enabled = !state.inProgress) { viewModel.cancelRoleChange() }
-            RoleChangeForm(state, viewModel::applyRoleChange, viewModel::cancelRoleChange, modifier)
+            RoleForm(
+                title = "Cambia ruolo",
+                subtitle = "Il dispositivo resta accoppiato, non serve un codice nuovo.",
+                initialRole = state.current,
+                initialName = state.name,
+                inProgress = state.inProgress,
+                error = state.error,
+                confirmLabel = "Applica",
+                onConfirm = viewModel::applyRoleChange,
+                onBack = viewModel::cancelRoleChange,
+                backLabel = "Annulla",
+                modifier = modifier,
+            )
         }
 
-        is UiState.ChoosingRole -> RoleSelection(
-            onSelectRole = viewModel::selectRole,
-            onChangeHub = viewModel::changeHub,
-            modifier = modifier,
-        )
+        is UiState.Connect -> ConnectForm(state, viewModel::submitConnection, modifier)
 
-        is UiState.Pairing -> {
-            // Senza questo il tasto indietro chiuderebbe l'app: le schermate sono
-            // stati del ViewModel, non destinazioni di navigazione.
-            BackHandler(enabled = !state.inProgress) { viewModel.changeRole() }
-            PairingForm(state, viewModel::pair, viewModel::unpair, viewModel::changeHub, modifier)
+        is UiState.ChoosingRole -> {
+            BackHandler(enabled = !state.inProgress) { viewModel.backToConnect() }
+            RoleForm(
+                title = "Che ruolo ha questo telefono?",
+                subtitle = "Lo si può cambiare quando vuoi, senza rifare il pairing.",
+                initialRole = null,
+                initialName = "",
+                inProgress = state.inProgress,
+                error = state.error,
+                confirmLabel = "Collega",
+                onConfirm = viewModel::pair,
+                onBack = { viewModel.backToConnect() },
+                backLabel = "Indietro",
+                modifier = modifier,
+            )
         }
 
         is UiState.Session -> when (state.role) {
@@ -148,182 +165,6 @@ fun CryLogApp(
                 onUnpair = viewModel::unpair,
                 modifier = modifier,
             )
-        }
-    }
-}
-
-@Composable
-private fun RoleSelection(
-    onSelectRole: (Role) -> Unit,
-    onChangeHub: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(Space.Screen),
-        verticalArrangement = Arrangement.spacedBy(Space.Item, Alignment.CenterVertically),
-    ) {
-        AppHeader(title = "CryLog", subtitle = "", connection = null)
-
-        Text(
-            "Che ruolo ha questo telefono?",
-            style = MaterialTheme.typography.titleMedium,
-        )
-
-        RoleCard(
-            title = "Nursery Node",
-            description = "Resta nella cameretta e avvisa quando sente un rumore.",
-            onClick = { onSelectRole(Role.NURSERY) },
-        )
-        RoleCard(
-            title = "Parent Node",
-            description = "Resta con te e riceve gli avvisi.",
-            onClick = { onSelectRole(Role.PARENT) },
-        )
-
-        Text(
-            "Si può cambiare quando vuoi.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        TextButton(onClick = onChangeHub) { Text("Cambia indirizzo dell'Hub") }
-    }
-}
-
-/**
- * Cambio di ruolo su un dispositivo gia' accoppiato.
- *
- * Nessun codice da digitare: il token che il telefono ha gia' e' la prova di
- * essere quel dispositivo. Si cambia anche il nome, perche' "Cameretta" e
- * "Telefono" non si scambiano da soli.
- */
-@Composable
-private fun RoleChangeForm(
-    state: UiState.ChangingRole,
-    onApply: (Role, String) -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var role by rememberSaveable { mutableStateOf(state.current) }
-    var name by rememberSaveable { mutableStateOf(state.name) }
-
-    Column(
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        AppHeader(title = "Cambia ruolo", subtitle = state.name, connection = null)
-
-        Text(
-            "Il dispositivo resta accoppiato, non serve un codice nuovo.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        RoleCard(
-            title = "Nursery Node",
-            description = "Resta nella cameretta e avvisa quando sente un rumore.",
-            onClick = { role = Role.NURSERY; name = "Cameretta" },
-            selected = role == Role.NURSERY,
-        )
-        RoleCard(
-            title = "Parent Node",
-            description = "Resta con te e riceve gli avvisi.",
-            onClick = { role = Role.PARENT; name = "Telefono" },
-            selected = role == Role.PARENT,
-        )
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Nome del dispositivo") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        if (state.error != null) {
-            Text(
-                pairingError(state.error),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        Button(
-            onClick = { onApply(role, name.trim()) },
-            enabled = !state.inProgress && name.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (state.inProgress) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp))
-            } else {
-                Text("Applica")
-            }
-        }
-
-        TextButton(onClick = onCancel) { Text("Annulla") }
-    }
-}
-
-/**
- * L'indirizzo dell'Hub, chiesto una volta sola.
- *
- * Prima del ruolo, perché è una proprietà dell'impianto e non del ruolo:
- * chiederlo di nuovo a ogni cambio faceva sembrare che dipendesse da quello.
- */
-@Composable
-private fun HubSetupForm(
-    state: UiState.HubSetup,
-    onConfirm: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var url by rememberSaveable { mutableStateOf(state.url) }
-
-    // Ancorata in alto e non centrata: l'intestazione tiene il bordo superiore,
-    // il contenuto scende da li'. Prima galleggiava tutto in mezzo e nessun
-    // elemento aveva un posto suo.
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(Space.Screen),
-        verticalArrangement = Arrangement.spacedBy(Space.Section),
-    ) {
-        AppHeader(title = "CryLog", subtitle = "", connection = null)
-
-        Column(verticalArrangement = Arrangement.spacedBy(Space.Tight)) {
-            Text("Il tuo Hub", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "È il servizio che hai installato in casa: mette in contatto i due " +
-                    "telefoni e tiene l'audio dentro la tua rete.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
-            // Il campo parte vuoto: un "https://crylog." a meta' sembrava un
-            // errore e costringeva a portare il cursore in fondo prima di
-            // scrivere. L'esempio sta nel segnaposto, dove non occupa una riga.
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = { Text("Indirizzo") },
-                placeholder = { Text("https://crylog.tuo-tailnet.ts.net") },
-                supportingText = { Text("Si chiede una volta sola") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Done,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Button(
-                onClick = { onConfirm(url) },
-                enabled = url.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Collega")
-            }
         }
     }
 }
@@ -368,18 +209,23 @@ private fun RoleCard(
     }
 }
 
+/**
+ * Indirizzo dell'Hub e codice, insieme.
+ *
+ * Si chiedono nella stessa schermata perché si leggono dalla stessa pagina:
+ * chi sta configurando ha davanti l'indirizzo e il codice appena generato.
+ * L'indirizzo però è permanente e il codice usa e getta, quindi quando l'Hub è
+ * già noto sta in una riga sola e il campo torna solo se serve cambiarlo.
+ */
 @Composable
-private fun PairingForm(
-    state: UiState.Pairing,
-    onPair: (String, String) -> Unit,
-    onChangeRole: () -> Unit,
-    onChangeHub: () -> Unit,
+private fun ConnectForm(
+    state: UiState.Connect,
+    onSubmit: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var hubUrl by rememberSaveable { mutableStateOf(state.hubUrl) }
     var code by rememberSaveable { mutableStateOf("") }
-    var name by rememberSaveable {
-        mutableStateOf(if (state.role == Role.NURSERY) "Cameretta" else "Telefono")
-    }
+    var editingHub by rememberSaveable { mutableStateOf(state.hubUrl.isBlank()) }
 
     Column(
         modifier = modifier
@@ -388,74 +234,181 @@ private fun PairingForm(
             .padding(Space.Screen),
         verticalArrangement = Arrangement.spacedBy(Space.Section),
     ) {
-        AppHeader(
-            title = if (state.role == Role.NURSERY) "Nursery Node" else "Parent Node",
-            subtitle = state.hubUrl,
-            connection = null,
-        )
+        AppHeader(title = "CryLog", subtitle = "", connection = null)
 
-        // Il codice è l'unica cosa che si va a cercare qui: sta da solo, in
-        // evidenza, e il nome viene dopo con un valore già ragionevole.
-        Section("Codice di pairing") {
-            SettingsCard {
-                PairingCodeField(value = code, onValueChange = { code = it })
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Tight)) {
+            Text("Collega all'Hub", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "L'Hub è il servizio che hai in casa: mette in contatto i due telefoni " +
+                    "e tiene l'audio dentro la tua rete.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (editingHub) {
+            OutlinedTextField(
+                value = hubUrl,
+                onValueChange = { hubUrl = it },
+                label = { Text("Indirizzo dell'Hub") },
+                placeholder = { Text("https://crylog.tuo-tailnet.ts.net") },
+                supportingText = { Text("Si chiede una volta sola") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.Item),
+            ) {
                 Text(
-                    "Otto caratteri. Li generi dalla pagina dell'Hub.",
-                    style = MaterialTheme.typography.bodySmall,
+                    hubUrl,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                TextButton(onClick = { editingHub = true }) { Text("Cambia") }
             }
         }
 
-        Section("Nome del dispositivo") {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = { Text(if (state.role == Role.NURSERY) "Cameretta" else "Telefono") },
-                supportingText = { Text("Come lo vedrai negli avvisi") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+        Section("Codice di pairing") {
+            PairingCodeField(value = code, onValueChange = { code = it })
+            Text(
+                "Otto caratteri. Li generi dalla pagina dell'Hub.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
             if (state.error != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-                ) {
-                    Text(
-                        pairingError(state.error),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
+                NoticeCard(text = pairingError(state.error), severe = true)
             }
 
             Button(
-                onClick = { onPair(PairingCode.format(code), name) },
-                enabled = !state.inProgress && PairingCode.isComplete(code) && name.isNotBlank(),
+                onClick = { onSubmit(hubUrl, PairingCode.format(code)) },
+                enabled = !state.checking && hubUrl.isNotBlank() && PairingCode.isComplete(code),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                if (state.inProgress) {
-                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                if (state.checking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = LocalContentColor.current,
+                        strokeWidth = 2.dp,
+                    )
                 } else {
-                    Text("Collega")
+                    Text("Avanti")
                 }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.Tight)) {
-                TextButton(onClick = onChangeRole) { Text("Cambia ruolo") }
-                TextButton(onClick = onChangeHub) { Text("Cambia Hub") }
             }
         }
     }
 }
 
-/** L'Hub risponde con codici sintetici: qui diventano qualcosa di azionabile. */
+/**
+ * Che telefono è questo, e come si chiama.
+ *
+ * Una schermata sola per due momenti: la scelta iniziale e il cambio
+ * successivo. Il ruolo viene per ultimo perché l'Hub lo accetta nella
+ * richiesta di pairing — basta mandargli tutto insieme alla fine invece di
+ * deciderlo all'inizio — e perché il nome predefinito dipende da lui.
+ */
+@Composable
+private fun RoleForm(
+    title: String,
+    subtitle: String,
+    initialRole: Role?,
+    initialName: String,
+    inProgress: Boolean,
+    error: String?,
+    confirmLabel: String,
+    onConfirm: (Role, String) -> Unit,
+    onBack: () -> Unit,
+    backLabel: String,
+    modifier: Modifier = Modifier,
+) {
+    var role by rememberSaveable { mutableStateOf(initialRole) }
+    var name by rememberSaveable { mutableStateOf(initialName) }
+    var nameTouched by rememberSaveable { mutableStateOf(initialName.isNotBlank()) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(Space.Screen),
+        verticalArrangement = Arrangement.spacedBy(Space.Section),
+    ) {
+        AppHeader(title = "CryLog", subtitle = "", connection = null)
+
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Tight)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            RoleCard(
+                title = "Nursery Node",
+                description = "Resta nella cameretta e avvisa quando sente un rumore.",
+                onClick = {
+                    role = Role.NURSERY
+                    // Il nome scritto a mano non si tocca: sovrascriverlo
+                    // butterebbe via quello che l'utente ha appena deciso.
+                    if (!nameTouched) name = "Cameretta"
+                },
+                selected = role == Role.NURSERY,
+            )
+            RoleCard(
+                title = "Parent Node",
+                description = "Resta con te e riceve gli avvisi.",
+                onClick = {
+                    role = Role.PARENT
+                    if (!nameTouched) name = "Telefono"
+                },
+                selected = role == Role.PARENT,
+            )
+        }
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it; nameTouched = true },
+            label = { Text("Nome del dispositivo") },
+            placeholder = { Text("Come lo vedrai negli avvisi") },
+            singleLine = true,
+            enabled = role != null,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            if (error != null) {
+                NoticeCard(text = pairingError(error), severe = true)
+            }
+
+            Button(
+                onClick = { role?.let { onConfirm(it, name.trim()) } },
+                enabled = !inProgress && role != null && name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (inProgress) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = LocalContentColor.current,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(confirmLabel)
+                }
+            }
+
+            TextButton(onClick = onBack) { Text(backLabel) }
+        }
+    }
+}
+
 private fun pairingError(code: String): String = when (code) {
     "unknown_code" -> "Codice non riconosciuto. Controlla di averlo copiato bene."
     "already_used" -> "Codice già usato. Generane un altro dall'Hub."
@@ -859,22 +812,6 @@ private fun elapsedSince(startedAt: Long, now: Long): String {
     val minutes = ((now - startedAt) / 60_000L).coerceAtLeast(0)
     if (minutes < 60) return "$minutes min"
     return "${minutes / 60} h ${minutes % 60} min"
-}
-
-/**
- * Chi e' questo telefono, e come sta, in una riga sola.
- *
- * Prima erano due testi alti impilati piu' una card di stato: tre blocchi per
- * dire un nome e un pallino, su una schermata che gia' non ci stava in altezza.
- */
-@Composable
-fun BrandMark(modifier: Modifier = Modifier) {
-    Image(
-        painter = painterResource(R.drawable.ic_launcher_art),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = modifier.size(72.dp).clip(RoundedCornerShape(20.dp)),
-    )
 }
 
 @Composable

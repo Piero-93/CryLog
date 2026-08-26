@@ -81,7 +81,7 @@ fun PairingCodeField(
     // cancellare tutto quello che viene dopo.
     var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
     if (field.text != value) {
-        field = TextFieldValue(value, TextRange(value.length.coerceAtMost(value.length)))
+        field = TextFieldValue(value, TextRange(value.length))
     }
 
     BasicTextField(
@@ -105,7 +105,11 @@ fun PairingCodeField(
             // una fissa: a 48dp l'una, otto piu' i distanziatori uscivano dal
             // bordo di qualunque telefono. I due gruppi da quattro si leggono
             // dallo spazio piu' largo al centro, senza spendere un trattino.
-            val caret = field.selection.end.coerceAtMost(PairingCode.LENGTH - 1)
+            // start e non end: toccando una cifra la si seleziona da index a
+            // index+1, quindi `end` e' gia' la casella dopo ed era quella che si
+            // accendeva. Con il cursore semplice start ed end coincidono, quindi
+            // durante la digitazione normale non cambia nulla.
+            val caret = field.selection.start.coerceAtMost(PairingCode.LENGTH - 1)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

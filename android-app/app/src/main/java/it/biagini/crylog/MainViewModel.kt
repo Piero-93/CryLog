@@ -58,28 +58,36 @@ import kotlinx.coroutines.launch
 sealed interface UiState {
 
     /**
-     * L'indirizzo dell'Hub, chiesto una volta sola per dispositivo.
+     * Dove sta l'Hub e con quale codice presentarsi.
      *
-     * Viene prima del ruolo perché è una proprietà dell'impianto, non del
-     * ruolo: cambiare ruolo a un telefono non cambia dove sta l'Hub, e
-     * richiederlo ogni volta faceva sembrare il contrario.
+     * Le due cose si chiedono insieme perché si leggono dalla stessa pagina:
+     * chi sta configurando ha davanti l'indirizzo e il codice appena generato.
      */
-    data class HubSetup(val url: String, val error: String? = null) : UiState
+    data class Connect(
+        val hubUrl: String = "",
+        val checking: Boolean = false,
+        val error: String? = null,
+    ) : UiState
 
-    data object ChoosingRole : UiState
+    /**
+     * La scelta del ruolo, che è anche il momento in cui il pairing parte.
+     *
+     * Il ruolo viene per ultimo perché il nome predefinito dipende da lui, e
+     * perché così questa schermata è la stessa che si riapre per cambiarlo:
+     * l'Hub accetta il ruolo nella richiesta di pairing, quindi basta mandargli
+     * tutto insieme alla fine invece di deciderlo all'inizio.
+     */
+    data class ChoosingRole(
+        val hubUrl: String,
+        val code: String,
+        val inProgress: Boolean = false,
+        val error: String? = null,
+    ) : UiState
 
     /** Cambio di ruolo su un dispositivo gia accoppiato: niente codice. */
     data class ChangingRole(
         val current: Role,
         val name: String,
-        val inProgress: Boolean = false,
-        val error: String? = null,
-    ) : UiState
-
-    data class Pairing(
-        val role: Role,
-        /** Ultimo Hub usato: si ridigita solo la prima volta. */
-        val hubUrl: String = "",
         val inProgress: Boolean = false,
         val error: String? = null,
     ) : UiState
@@ -218,42 +226,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             deviceName = store.deviceName.orEmpty(),
             connection = ConnectionState.Disconnected,
         )
-        store.hubUrl.isNullOrBlank() -> UiState.HubSetup(DEFAULT_HUB_URL)
-        store.role != null -> UiState.Pairing(store.role!!, store.hubUrl.orEmpty())
-        else -> UiState.ChoosingRole
+        else -> UiState.Connect(store.hubUrl.orEmpty())
     }
 
-    /** Registra l'Hub e passa alla scelta del ruolo. */
-    fun setHubUrl(url: String) {
-        val trimmed = url.trim().trimEnd('/')
-        if (trimmed.isBlank()) return
-        store.hubUrl = trimmed
-        _uiState.value = if (store.role != null) {
-            UiState.Pairing(store.role!!, trimmed)
-        } else {
-            UiState.ChoosingRole
+    /**
+     * Indirizzo e codice raccolti: manca solo sapere che telefono e' questo.
+     *
+     * Il codice viene verificato prima di andare avanti — l'Hub lo controlla
+     * senza consumarlo — cosi' un codice sbagliato si scopre qui, dove c'e' il
+     * campo per correggerlo, invece che a scelta del ruolo gia' fatta.
+     */
+    fun submitConnection(hubUrl: String, code: String) {
+        val url = hubUrl.trim().trimEnd('/')
+        _uiState.value = UiState.Connect(url, checking = true)
+
+        viewModelScope.launch {
+            client.verifyCode(url, code.trim())
+                .onSuccess { _uiState.value = UiState.ChoosingRole(url, code) }
+                .onFailure { failure ->
+                    _uiState.value = UiState.Connect(
+                        url,
+                        error = failure.message ?: "unreachable",
+                    )
+                }
         }
     }
 
-    /** Torna a chiedere l'indirizzo: l'Hub è stato spostato, o era sbagliato. */
-    fun changeHub() {
-        _uiState.value = UiState.HubSetup(store.hubUrl ?: DEFAULT_HUB_URL)
+    /** Torna a indirizzo e codice, per esempio perche' il codice era sbagliato. */
+    fun backToConnect(error: String? = null) {
+        val current = _uiState.value
+        val url = when (current) {
+            is UiState.ChoosingRole -> current.hubUrl
+            else -> store.hubUrl.orEmpty()
+        }
+        _uiState.value = UiState.Connect(url, error = error)
     }
 
-    fun selectRole(role: Role) {
-        store.role = role
-        _uiState.value = UiState.Pairing(role, store.hubUrl.orEmpty())
-    }
 
-    fun pair(code: String, name: String) {
-        val role = store.role ?: return
-        val hubUrl = store.hubUrl.orEmpty()
-        _uiState.value = UiState.Pairing(role, hubUrl, inProgress = true)
+
+    fun pair(role: Role, name: String) {
+        val current = _uiState.value as? UiState.ChoosingRole ?: return
+        val hubUrl = current.hubUrl
+        val code = current.code
+        _uiState.value = current.copy(inProgress = true)
 
         viewModelScope.launch {
             client.pair(hubUrl.trim(), code.trim(), role, name.trim())
                 .onSuccess { device ->
                     store.hubUrl = hubUrl.trim()
+                    store.role = device.role
                     store.deviceId = device.deviceId
                     store.deviceToken = device.token
                     store.deviceName = device.name
@@ -265,12 +286,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     connect()
                     requestFcmToken()
                 }
-                .onFailure { error ->
-                    _uiState.value = UiState.Pairing(
-                        role = role,
-                        hubUrl = hubUrl,
-                        error = error.message ?: "pairing fallito",
-                    )
+                .onFailure { failure ->
+                    val reason = failure.message ?: "pairing fallito"
+                    // Un codice sbagliato va corretto dove il codice si scrive:
+                    // lasciare l'errore qui, su una schermata che il campo non
+                    // ce l'ha, obbligherebbe a tornare indietro a indovinare.
+                    if (reason in CODE_ERRORS) {
+                        backToConnect(reason)
+                    } else {
+                        _uiState.value = UiState.ChoosingRole(hubUrl, code, error = reason)
+                    }
                 }
         }
     }
@@ -558,7 +583,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetPairing() {
         stopEverything()
         store.clearPairing()
-        _uiState.value = UiState.Pairing(store.role ?: Role.PARENT, store.hubUrl.orEmpty())
+        _uiState.value = UiState.Connect(store.hubUrl.orEmpty(), error = "unauthorized")
     }
 
     /**
@@ -571,7 +596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopEverything()
         store.clearPairing()
         store.role = null
-        _uiState.value = UiState.ChoosingRole
+        _uiState.value = UiState.Connect(store.hubUrl.orEmpty())
     }
 
     /** Torna alla sessione lasciando il ruolo com era. */
@@ -643,8 +668,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        /** Errori dell'Hub che riguardano il codice, non il ruolo. */
+        val CODE_ERRORS = setOf("unknown_code", "already_used", "expired", "invalid_code_format")
+
         const val MAX_EVENTS = 50
-        const val DEFAULT_HUB_URL = ""
         const val TAG = "CryLogViewModel"
     }
 }
