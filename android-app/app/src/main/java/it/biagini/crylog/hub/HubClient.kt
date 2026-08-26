@@ -115,6 +115,40 @@ class HubClient(private val scope: CoroutineScope) {
             }
         }
 
+    /**
+     * Cronologia dall'Hub.
+     *
+     * La lista in memoria si svuota a ogni riavvio dell'app: senza questa, la
+     * notifica prometterebbe dettagli che non esistono, e un progetto chiamato
+     * CryLog non avrebbe alcun registro.
+     */
+    suspend fun recentEvents(hubUrl: String, token: String, limit: Int = 50): Result<List<HubMessage.Noise>> =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("${hubUrl.trimEnd('/')}/events?limit=$limit")
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("http_${response.code}")
+                    val events = JSONObject(response.body?.string().orEmpty()).getJSONArray("events")
+
+                    List(events.length()) { index ->
+                        val item = events.getJSONObject(index)
+                        HubMessage.Noise(
+                            id = item.getString("id"),
+                            nurseryId = item.getString("nurseryId"),
+                            nurseryName = item.optString("nurseryName").ifBlank { "?" },
+                            startedAt = item.getLong("startedAt"),
+                            endedAt = if (item.isNull("endedAt")) null else item.getLong("endedAt"),
+                            peakDb = if (item.isNull("peakDb")) null else item.getDouble("peakDb"),
+                        )
+                    }
+                }
+            }
+        }
+
     fun connect(hubUrl: String, token: String) {
         disconnect()
         attempt = 0

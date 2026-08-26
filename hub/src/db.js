@@ -69,6 +69,7 @@ const toDevice = (row) => row && {
 const toEvent = (row) => row && {
   id: row.id,
   nurseryId: row.nursery_id,
+  nurseryName: row.nursery_name ?? null,
   startedAt: row.started_at,
   endedAt: row.ended_at,
   peakDb: row.peak_db,
@@ -101,8 +102,19 @@ export function openDatabase(dataDir) {
     deleteExpiredCodes: db.prepare('DELETE FROM pairing_codes WHERE expires_at < ?'),
 
     insertEvent: db.prepare('INSERT INTO events (id, nursery_id, started_at, ended_at, peak_db, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
-    recentEvents: db.prepare('SELECT * FROM events ORDER BY started_at DESC LIMIT ?'),
-    eventsByNursery: db.prepare('SELECT * FROM events WHERE nursery_id = ? ORDER BY started_at DESC LIMIT ?'),
+
+    // Il nome arriva dalla join: un elenco di identificativi non dice a nessuno
+    // quale stanza abbia fatto rumore.
+    recentEvents: db.prepare(`
+      SELECT e.*, d.name AS nursery_name
+      FROM events e LEFT JOIN devices d ON d.id = e.nursery_id
+      ORDER BY e.started_at DESC LIMIT ?
+    `),
+    eventsByNursery: db.prepare(`
+      SELECT e.*, d.name AS nursery_name
+      FROM events e LEFT JOIN devices d ON d.id = e.nursery_id
+      WHERE e.nursery_id = ? ORDER BY e.started_at DESC LIMIT ?
+    `),
   }
 
   return {

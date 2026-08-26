@@ -58,6 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import it.biagini.crylog.MainViewModel
 import it.biagini.crylog.UiState
 import it.biagini.crylog.core.ConnectionState
@@ -354,8 +359,24 @@ private fun ConnectionBanner(connection: ConnectionState, onReconnect: () -> Uni
     }
 }
 
+/** Solo ora e minuti se è di oggi, altrimenti anche il giorno. */
+private fun formatMoment(timestamp: Long): String {
+    val moment = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
+    val today = LocalDate.now(ZoneId.systemDefault())
+
+    val pattern = if (moment.toLocalDate() == today) "HH:mm" else "d MMM, HH:mm"
+    return moment.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
+}
+
 @Composable
 private fun EventRow(event: HubMessage) {
+    val moment = when (event) {
+        is HubMessage.Noise -> event.startedAt
+        is HubMessage.NurseryOnline -> event.at
+        is HubMessage.NurseryOffline -> event.lastSeen
+        else -> null
+    }
+
     val text = when (event) {
         is HubMessage.Noise -> {
             val level = event.peakDb?.let { " (%.0f dB)".format(it) }.orEmpty()
@@ -372,6 +393,19 @@ private fun EventRow(event: HubMessage) {
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        Text(text, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            if (moment != null && moment > 0) {
+                Text(
+                    formatMoment(moment),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

@@ -265,3 +265,20 @@ test('senza Nursery Node attivi non arriva nessuno stato iniziale', async () => 
   await assert.rejects(() => parentWs.next('nursery-online', 300))
   parentWs.close()
 })
+
+test('la cronologia dice quale Nursery Node ha fatto rumore', async () => {
+  const nursery = await pair('nursery', 'Cameretta di Anna')
+  const parent = await pair('parent', 'Telefono')
+
+  const nurseryWs = await connect(nursery.token)
+  await nurseryWs.next('welcome')
+  nurseryWs.send({ type: 'noise', startedAt: Date.now(), peakDb: 70 })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  nurseryWs.close()
+
+  const res = await api('/events', { token: parent.token })
+  const event = res.body.events.find((e) => e.nurseryId === nursery.deviceId)
+
+  assert.ok(event, 'evento non trovato')
+  assert.equal(event.nurseryName, 'Cameretta di Anna', 'un id non dice a nessuno quale stanza sia')
+})

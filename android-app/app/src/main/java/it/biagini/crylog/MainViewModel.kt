@@ -87,6 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (connection is ConnectionState.Connected) {
                     deliverFcmToken()
+                    loadHistory()
                 } else {
                     // Persa la connessione non sappiamo più se qualcuno stia
                     // sorvegliando: meglio nessuna informazione che una vecchia.
@@ -251,6 +252,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             else -> Unit
+        }
+    }
+
+    /**
+     * Carica dall'Hub gli eventi già registrati.
+     *
+     * Gli eventi arrivati in tempo reale restano in cima: sono gli stessi, ma
+     * la cronologia è ordinata e potrebbe non contenere ancora l'ultimo.
+     */
+    private fun loadHistory() {
+        val url = store.hubUrl ?: return
+        val token = store.deviceToken ?: return
+
+        viewModelScope.launch {
+            client.recentEvents(url, token)
+                .onSuccess { history ->
+                    _uiState.update { current ->
+                        if (current !is UiState.Session) return@update current
+                        val liveIds = current.events.mapNotNull { (it as? HubMessage.Noise)?.id }.toSet()
+                        current.copy(
+                            events = (current.events + history.filter { it.id !in liveIds })
+                                .take(MAX_EVENTS),
+                        )
+                    }
+                }
+                .onFailure { Log.w(TAG, "cronologia non caricata: ${it.message}") }
         }
     }
 

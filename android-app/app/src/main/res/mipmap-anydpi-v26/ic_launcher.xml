@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  L'icona sta nel livello di sfondo, non in quello di primo piano.
+
+  È già disegnata come icona completa, con la sua composizione: metterla in
+  primo piano la ridurrebbe una seconda volta dentro la safe area, lasciando
+  un riquadro dentro un riquadro.
+
+  Il ritaglio vale però anche per lo sfondo: di 108dp il launcher ne mostra
+  solo 72, e il resto se lo mangia per le animazioni di parallasse. Per questo
+  l'arte contiene l'immagine rimpicciolita al centro, con l'indigo esteso
+  fino ai bordi: quello che viene tagliato è solo fondo.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_art" />
+    <foreground android:drawable="@android:color/transparent" />
+</adaptive-icon>
