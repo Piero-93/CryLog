@@ -78,6 +78,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.LocalContentColor
 
 @Composable
 fun NurseryScreen(
@@ -210,9 +212,7 @@ fun NurseryScreen(
             }
 
             if (armed) {
-                OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-                    Text("Interrompi")
-                }
+                StopButton("Interrompi", onClick)
             } else {
                 Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
                     Text("Avvia il monitoraggio")

@@ -742,9 +742,7 @@ private fun ListenCard(
                         }
                     }
 
-                    Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                        Text("Interrompi")
-                    }
+                    StopButton("Interrompi", onStop)
                 }
 
                 is TransportState.Failed -> {

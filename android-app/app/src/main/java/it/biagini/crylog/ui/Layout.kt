@@ -57,6 +57,10 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.OutlinedButton
 
 /**
  * La scala delle distanze.
@@ -304,6 +308,27 @@ fun SettingRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * Il pulsante che ferma qualcosa.
+ *
+ * Contornato e non pieno: fermare non deve avere lo stesso invito che ha
+ * avviare. I colori li prende dal contenitore in cui vive, cosi' resta
+ * leggibile sia dentro una card verde sia dentro una rossa, senza casi
+ * speciali — e soprattutto e' lo stesso pulsante ovunque, invece di due che
+ * possono divergere.
+ */
+@Composable
+fun StopButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalContentColor.current),
+        border = BorderStroke(1.dp, LocalContentColor.current.copy(alpha = 0.5f)),
+    ) {
+        Text(text)
     }
 }
 
