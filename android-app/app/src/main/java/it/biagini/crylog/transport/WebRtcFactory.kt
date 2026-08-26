@@ -52,7 +52,23 @@ object WebRtcFactory {
             )
             .createAudioDeviceModule()
 
+        // Perche WebRTC veda l interfaccia della tailnet.
+        //
+        // Il monitor di rete di Android elenca le reti che gli passa
+        // ConnectivityManager, e la tun di Tailscale non compare: misurato sui
+        // candidati ICE, dove di 100.x non c era traccia e il media viaggiava
+        // sulla LAN. Disattivandolo, WebRTC torna a enumerare le interfacce dal
+        // sistema e la tun rientra. Le notifiche di cambio rete non servono
+        // piu: ListenService ha il suo NetworkCallback.
+        val options = PeerConnectionFactory.Options().apply {
+            // Tutto tranne il loopback: 127.0.0.1 non porta da nessuna parte e
+            // sarebbero due controlli di connettivita buttati per sessione.
+            networkIgnoreMask = ADAPTER_TYPE_LOOPBACK
+            disableNetworkMonitor = true
+        }
+
         val created = PeerConnectionFactory.builder()
+            .setOptions(options)
             .setAudioDeviceModule(audio)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
@@ -62,4 +78,8 @@ object WebRtcFactory {
         factory = created
         return created
     }
+
+    /** Maschera dei tipi di interfaccia: il bit del loopback in libwebrtc. */
+    private const val ADAPTER_TYPE_LOOPBACK = 1 shl 4
+
 }
