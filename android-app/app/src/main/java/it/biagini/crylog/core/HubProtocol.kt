@@ -62,6 +62,21 @@ sealed interface HubMessage {
     data class Failure(val code: String) : HubMessage
 
     /**
+     * Busta di signaling WebRTC.
+     *
+     * Il contenuto resta testo: l Hub non lo interpreta e nemmeno questo
+     * livello, che si limita a consegnarlo al trasporto.
+     */
+    data class Signal(
+        val from: String,
+        val fromName: String,
+        val payload: String,
+    ) : HubMessage
+
+    /** Il destinatario non era raggiungibile: chi aspetta lo stream deve saperlo. */
+    data class SignalUndelivered(val to: String, val reason: String) : HubMessage
+
+    /**
      * Un tipo che questa versione dell'app non conosce. Non è un errore: un Hub
      * più recente può introdurre messaggi nuovi, e l'app deve limitarsi a
      * ignorarli invece di trattare la connessione come rotta.
@@ -108,6 +123,17 @@ object HubProtocol {
                 reason = json.optString("reason"),
             )
 
+            "signal" -> HubMessage.Signal(
+                from = json.getString("from"),
+                fromName = json.optString("fromName"),
+                payload = json.getJSONObject("payload").toString(),
+            )
+
+            "signal-undelivered" -> HubMessage.SignalUndelivered(
+                to = json.optString("to"),
+                reason = json.optString("reason"),
+            )
+
             "error" -> HubMessage.Failure(json.optString("code"))
 
             else -> HubMessage.Unsupported(type)
@@ -126,6 +152,13 @@ object HubProtocol {
                 endedAt?.let { put("endedAt", it) }
                 peakDb?.let { put("peakDb", it) }
             }
+            .toString()
+
+    fun signal(to: String, payload: String): String =
+        JSONObject()
+            .put("type", "signal")
+            .put("to", to)
+            .put("payload", JSONObject(payload))
             .toString()
 
     fun fcmToken(token: String): String =

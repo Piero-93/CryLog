@@ -20,7 +20,16 @@ import { bearerToken } from './http.js'
 import { selectPushTargets } from './fanout.js'
 import { noisePayload, offlinePayload } from './fcm.js'
 import { hashSecret, generateDeviceId } from './pairing.js'
-import { error, noiseEvent, nurseryOffline, nurseryOnline, parseClientMessage, welcome } from './protocol.js'
+import {
+  error,
+  noiseEvent,
+  nurseryOffline,
+  nurseryOnline,
+  parseClientMessage,
+  signal,
+  signalUndelivered,
+  welcome,
+} from './protocol.js'
 
 const rejectUpgrade = (socket, status, reason) => {
   socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`)
@@ -32,7 +41,12 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
   // girano dopo che il database e stato chiuso: senza questa guardia
   // finirebbero su statement gia finalizzati.
   let closing = false
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 })
+  const wss = new WebSocketServer({
+    noServer: true,
+    // Un SDP con molti candidati arriva a qualche kilobyte: 16 KB starebbero
+    // stretti proprio nel messaggio che apre lo stream.
+    maxPayload: 64 * 1024,
+  })
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://localhost')
@@ -187,6 +201,28 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
       case 'fcm-token':
         db.setFcmToken(device.id, message.token)
         break
+
+      case 'signal': {
+        // Il payload non viene letto: SDP e candidati ICE restano affari dei
+        // due telefoni. Qui si controlla solo che il destinatario esista e sia
+        // raggiungibile, perche' chi aspetta uno stream deve sapere se e' vano.
+        const recipient = db.findDeviceById(message.to)
+        if (!recipient) {
+          connection.send(signalUndelivered(message.to, 'unknown_device'))
+          return
+        }
+
+        const targets = registry.listByDevice(message.to)
+        if (targets.length === 0) {
+          connection.send(signalUndelivered(message.to, 'offline'))
+          return
+        }
+
+        const envelope = signal(device.id, device.name, message.payload)
+        const delivered = targets.filter((target) => target.send(envelope)).length
+        if (delivered === 0) connection.send(signalUndelivered(message.to, 'offline'))
+        break
+      }
     }
   }
 

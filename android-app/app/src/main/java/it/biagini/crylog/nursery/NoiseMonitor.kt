@@ -26,6 +26,7 @@ package it.biagini.crylog.nursery
 
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.NoiseEvent
+import it.biagini.crylog.core.TransportState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +63,13 @@ object NoiseMonitor {
 
     private val _connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
+
+    private val _stream = MutableStateFlow<TransportState>(TransportState.Idle)
+    val stream: StateFlow<TransportState> = _stream.asStateFlow()
+
+    internal fun setStream(state: TransportState) {
+        _stream.value = state
+    }
 
     private val _lastEvent = MutableStateFlow<NoiseEvent?>(null)
     val lastEvent: StateFlow<NoiseEvent?> = _lastEvent.asStateFlow()

@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,6 +47,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -84,10 +88,24 @@ fun NurseryScreen(
     var confirmingUnpair by remember { mutableStateOf(false) }
     var minDuration by remember { mutableStateOf(viewModel.noiseMinDurationMs) }
     var cooldown by remember { mutableStateOf(viewModel.noiseCooldownMs) }
+    var audioOnly by remember { mutableStateOf(viewModel.audioOnly) }
+    var cameraGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> cameraGranted = granted }
 
     val required = remember {
         buildList {
             add(Manifest.permission.RECORD_AUDIO)
+            // Serve solo se un Parent Node chiedera il video: senza, il
+            // monitoraggio funziona lo stesso.
+            add(Manifest.permission.CAMERA)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -108,7 +126,9 @@ fun NurseryScreen(
     }
 
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        // Senza scorrimento la parte bassa, pulsanti compresi, resta fuori
+        // schermo sui telefoni piu corti.
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Nursery Node", style = MaterialTheme.typography.headlineMedium)
@@ -172,6 +192,50 @@ fun NurseryScreen(
             selectedMs = minDuration,
             onSelect = { minDuration = it; viewModel.setMinDuration(it) },
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Solo audio", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "La fotocamera non si accende mai, qualunque cosa chiedano i Parent Node.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = audioOnly,
+                onCheckedChange = { audioOnly = it; viewModel.setAudioOnly(it) },
+            )
+        }
+
+        // Il permesso fotocamera si chiede all'avvio del monitoraggio, ma chi
+        // aveva già armato prima di questa versione non lo ha mai visto: senza
+        // un modo per concederlo dopo, il video resterebbe nero per sempre.
+        if (!audioOnly && !cameraGranted) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Senza accesso alla fotocamera i Parent Node riceveranno " +
+                            "solo audio, anche se chiedono il video.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedButton(
+                        onClick = { cameraLauncher.launch(Manifest.permission.CAMERA) },
+                    ) {
+                        Text("Consenti la fotocamera")
+                    }
+                }
+            }
+        }
 
         PresetSelector(
             title = "Avvisa al massimo ogni",

@@ -76,6 +76,15 @@ class DeviceStore(context: Context) {
         get() = prefs.getLong(KEY_COOLDOWN, RmsNoiseDetector.DEFAULT_COOLDOWN_MS)
         set(value) = prefs.edit().putLong(KEY_COOLDOWN, value).apply()
 
+    /**
+     * Quando e attivo il Nursery Node non offre video a nessuno, qualunque
+     * cosa chiedano i Parent Node. Per risparmiare, o per non avere una
+     * fotocamera accesa in camera da letto.
+     */
+    var audioOnly: Boolean
+        get() = prefs.getBoolean(KEY_AUDIO_ONLY, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUDIO_ONLY, value).apply()
+
     /** Se il Nursery Node deve riprendere il monitoraggio da solo dopo un riavvio. */
     var armed: Boolean
         get() = prefs.getBoolean(KEY_ARMED, false)
@@ -127,6 +136,7 @@ class DeviceStore(context: Context) {
         const val KEY_MIN_DURATION = "noise_min_duration_ms"
         const val KEY_COOLDOWN = "noise_cooldown_ms"
         const val KEY_ARMED = "armed"
+        const val KEY_AUDIO_ONLY = "audio_only"
         const val KEY_FLASH = "flash_on_alert"
         const val KEY_VIBRATE = "vibrate_on_alert"
         const val KEY_FCM_TOKEN = "fcm_token_pending"

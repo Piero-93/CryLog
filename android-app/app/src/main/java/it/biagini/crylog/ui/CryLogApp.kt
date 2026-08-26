@@ -24,7 +24,11 @@
 
 package it.biagini.crylog.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,13 +37,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -55,6 +61,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -67,7 +75,12 @@ import it.biagini.crylog.MainViewModel
 import it.biagini.crylog.UiState
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
+import it.biagini.crylog.core.RmsNoiseDetector
+import it.biagini.crylog.parent.RemoteVideo
+import it.biagini.crylog.parent.StreamLevel
+import it.biagini.crylog.core.TransportState
 import it.biagini.crylog.core.Role
 
 @Composable
@@ -240,11 +253,29 @@ private fun SessionScreen(
     modifier: Modifier = Modifier,
 ) {
     var confirmingUnpair by rememberSaveable { mutableStateOf(false) }
+    var wantVideo by rememberSaveable { mutableStateOf(false) }
+    var wantTalkBack by rememberSaveable { mutableStateOf(false) }
+    var talking by rememberSaveable { mutableStateOf(false) }
     var vibrate by rememberSaveable { mutableStateOf(viewModel.vibrateOnAlert) }
+
+    // Il Parent Node non ha mai avuto bisogno del microfono: il permesso si
+    // chiede solo a chi sceglie di poter rispondere.
+    val context = LocalContext.current
+    var micGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> micGranted = granted; wantTalkBack = granted }
     var flash by rememberSaveable { mutableStateOf(viewModel.flashOnAlert) }
 
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        // La schermata non ci sta in altezza: senza scorrimento la cronologia
+        // spingerebbe fuori dallo schermo il pulsante che la segue.
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -254,6 +285,27 @@ private fun SessionScreen(
         Text(state.deviceName, style = MaterialTheme.typography.bodyLarge)
 
         ConnectionBanner(state.connection, onReconnect)
+
+        ListenCard(
+            nurseryName = state.nurseryName,
+            stream = state.stream,
+            wantVideo = wantVideo,
+            onWantVideoChange = { wantVideo = it },
+            onStart = { viewModel.startListening(video = wantVideo, talkBack = wantTalkBack) },
+            onStop = { talking = false; viewModel.stopListening() },
+            wantTalkBack = wantTalkBack,
+            onWantTalkBackChange = { wanted ->
+                if (!wanted) {
+                    wantTalkBack = false
+                } else if (micGranted) {
+                    wantTalkBack = true
+                } else {
+                    micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            talking = talking,
+            onTalkingChange = { on -> talking = on; viewModel.setTalking(on) },
+        )
 
         HorizontalDivider()
 
@@ -299,8 +351,11 @@ private fun SessionScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.events) { event -> EventRow(event) }
+            // Colonna semplice e non lazy: gli eventi sono al massimo
+            // MainViewModel.MAX_EVENTS, e una lista lazy dentro una colonna che
+            // scorre non puo misurarsi.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.events.forEach { event -> EventRow(event) }
             }
         }
 
@@ -328,6 +383,165 @@ private fun SessionScreen(
                 TextButton(onClick = { confirmingUnpair = false }) { Text("Annulla") }
             },
         )
+    }
+}
+
+/**
+ * L'ascolto in diretta.
+ *
+ * Lo stream parte solo se lo si chiede: finché nessuno ascolta, il Nursery
+ * Node non spende nulla per trasmettere e continua soltanto a sorvegliare.
+ */
+@Composable
+private fun ListenCard(
+    nurseryName: String?,
+    stream: TransportState,
+    wantVideo: Boolean,
+    onWantVideoChange: (Boolean) -> Unit,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    wantTalkBack: Boolean,
+    onWantTalkBackChange: (Boolean) -> Unit,
+    talking: Boolean,
+    onTalkingChange: (Boolean) -> Unit,
+) {
+    if (nurseryName == null) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "Nessun Nursery Node in ascolto: non c'è nulla da sentire.",
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (stream is TransportState.Streaming) {
+                MaterialTheme.colorScheme.tertiaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            when (stream) {
+                TransportState.Idle -> {
+                    Text("Ascolta $nurseryName", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Apre l'audio dal vivo dalla cameretta.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Anche il video", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Accende la fotocamera in cameretta. Al buio non si vede " +
+                                    "granché e consuma parecchia batteria.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = wantVideo, onCheckedChange = onWantVideoChange)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Poter rispondere", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Aggiunge un pulsante per farti sentire in cameretta. " +
+                                    "Va deciso adesso: dopo servirebbe riaprire l ascolto.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = wantTalkBack, onCheckedChange = onWantTalkBackChange)
+                    }
+
+                    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (wantVideo) "Guarda e ascolta" else "Ascolta")
+                    }
+                }
+
+                TransportState.Connecting -> {
+                    Text("Connessione in corso...", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
+                        Text("Annulla")
+                    }
+                }
+
+                is TransportState.Streaming -> {
+                    Text("In ascolto da $nurseryName", style = MaterialTheme.typography.titleMedium)
+
+                    val hasVideo by RemoteVideo.available.collectAsStateWithLifecycle()
+                    if (hasVideo) {
+                        VideoView()
+                    } else if (wantVideo) {
+                        // Avevi chiesto il video e non è arrivato: il Nursery
+                        // Node è in modalità solo audio o non ha fotocamera.
+                        Text(
+                            "Il Nursery Node sta trasmettendo solo audio.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    val history by StreamLevel.history.collectAsStateWithLifecycle()
+                    val level by StreamLevel.levelDb.collectAsStateWithLifecycle()
+
+                    // Serve a distinguere una cameretta silenziosa da uno stream
+                    // che non porta nulla: due situazioni identiche all'orecchio.
+                    LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+                    Text(
+                        "Livello ricevuto: %.0f dBFS".format(level),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    if (wantTalkBack) {
+                        FilledTonalButton(
+                            onClick = { onTalkingChange(!talking) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = if (talking) {
+                                ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            } else {
+                                ButtonDefaults.filledTonalButtonColors()
+                            },
+                        ) {
+                            Text(if (talking) "Stai parlando — tocca per chiudere" else "Parla")
+                        }
+                    }
+
+                    Button(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
+                        Text("Interrompi")
+                    }
+                }
+
+                is TransportState.Failed -> {
+                    Text("Ascolto non riuscito", style = MaterialTheme.typography.titleMedium)
+                    Text(stream.reason, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+                        Text("Riprova")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -390,6 +604,9 @@ private fun EventRow(event: HubMessage) {
         is HubMessage.Welcome -> "Sessione avviata come ${event.name}"
         is HubMessage.Failure -> "Errore dall'Hub: ${event.code}"
         is HubMessage.Unsupported -> "Messaggio non riconosciuto: ${event.type}"
+        // Il signaling e filtrato prima di arrivare qui: e traffico fra i due
+        // telefoni, non un evento da mostrare.
+        else -> return
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {

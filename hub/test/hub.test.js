@@ -282,3 +282,90 @@ test('la cronologia dice quale Nursery Node ha fatto rumore', async () => {
   assert.ok(event, 'evento non trovato')
   assert.equal(event.nurseryName, 'Cameretta di Anna', 'un id non dice a nessuno quale stanza sia')
 })
+
+test('il signaling viene instradato al destinatario', async () => {
+  const nursery = await pair('nursery', 'Cameretta')
+  const parent = await pair('parent', 'Telefono')
+
+  const nurseryWs = await connect(nursery.token)
+  await nurseryWs.next('welcome')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  parentWs.send({
+    type: 'signal',
+    to: nursery.deviceId,
+    payload: { kind: 'offer', sdp: 'v=0...' },
+  })
+
+  const received = await nurseryWs.next('signal')
+  assert.equal(received.from, parent.deviceId, 'il destinatario deve sapere chi ha chiamato')
+  assert.equal(received.fromName, 'Telefono')
+  assert.deepEqual(received.payload, { kind: 'offer', sdp: 'v=0...' })
+
+  nurseryWs.close()
+  parentWs.close()
+})
+
+test('l Hub non guarda dentro il payload del signaling', async () => {
+  const nursery = await pair('nursery', 'Cameretta')
+  const parent = await pair('parent', 'Telefono')
+
+  const nurseryWs = await connect(nursery.token)
+  await nurseryWs.next('welcome')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  // Forma arbitraria: per l'Hub e' una busta chiusa, e deve restare cosi'
+  // perche' il media non gli passi mai davanti.
+  const opaque = { qualunque: 'cosa', annidato: { valori: [1, 2, 3] } }
+  parentWs.send({ type: 'signal', to: nursery.deviceId, payload: opaque })
+
+  assert.deepEqual((await nurseryWs.next('signal')).payload, opaque)
+
+  nurseryWs.close()
+  parentWs.close()
+})
+
+test('chi chiama un dispositivo spento lo viene a sapere', async () => {
+  const nursery = await pair('nursery', 'Cameretta spenta')
+  const parent = await pair('parent', 'Telefono')
+
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  // Il Nursery esiste ma non e' collegato: senza risposta il Parent
+  // aspetterebbe uno stream che non arrivera' mai.
+  parentWs.send({ type: 'signal', to: nursery.deviceId, payload: { kind: 'offer' } })
+
+  const failure = await parentWs.next('signal-undelivered')
+  assert.equal(failure.to, nursery.deviceId)
+  assert.equal(failure.reason, 'offline')
+
+  parentWs.close()
+})
+
+test('un destinatario inesistente viene distinto da uno spento', async () => {
+  const parent = await pair('parent', 'Telefono')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  parentWs.send({ type: 'signal', to: 'non-esiste', payload: { kind: 'offer' } })
+
+  assert.equal((await parentWs.next('signal-undelivered')).reason, 'unknown_device')
+  parentWs.close()
+})
+
+test('un signaling malformato viene rifiutato', async () => {
+  const parent = await pair('parent', 'Telefono')
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  parentWs.send({ type: 'signal', payload: {} })
+  assert.equal((await parentWs.next('error')).code, 'invalid_recipient')
+
+  parentWs.send({ type: 'signal', to: 'x', payload: 'non-un-oggetto' })
+  assert.equal((await parentWs.next('error')).code, 'invalid_payload')
+
+  parentWs.close()
+})

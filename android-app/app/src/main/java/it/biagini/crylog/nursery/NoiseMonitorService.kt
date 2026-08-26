@@ -24,6 +24,7 @@
 
 package it.biagini.crylog.nursery
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -31,6 +32,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -39,7 +42,11 @@ import it.biagini.crylog.R
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.NoiseDetector
+import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.RmsNoiseDetector
+import it.biagini.crylog.core.Role
+import it.biagini.crylog.core.StreamTransport
+import it.biagini.crylog.transport.WebRtcTransport
 import it.biagini.crylog.hub.DeviceStore
 import it.biagini.crylog.hub.HubClient
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +69,14 @@ class NoiseMonitorService : Service() {
     private lateinit var client: HubClient
     private lateinit var detector: NoiseDetector
     private var audio: AudioSource? = null
+    private var transport: StreamTransport? = null
+
+    /**
+     * Mentre il genitore parla il rilevamento tace: lo speaker riproduce la sua
+     * voce e il microfono la risentirebbe, segnalandola come rumore in
+     * cameretta.
+     */
+    @Volatile private var talkBackActive = false
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +86,38 @@ class NoiseMonitorService : Service() {
         scope.launch {
             client.state.collect { NoiseMonitor.setConnection(it) }
         }
+
+        // Il trasporto vive qui e non nella UI: una richiesta di ascolto deve
+        // trovare risposta anche con l'app chiusa, che è la condizione normale
+        // per un telefono lasciato in cameretta.
+        transport = WebRtcTransport(
+            context = this,
+            role = Role.NURSERY,
+            sendSignal = { peerId, payload -> client.send(HubProtocol.signal(peerId, payload)) },
+            audioOnly = { store.audioOnly },
+            onCameraInUse = ::updateServiceType,
+            onTalkBack = { active ->
+                Log.i(TAG, "talk-back=$active")
+                talkBackActive = active
+                // Uscendo dalla sospensione il rilevatore ha ancora lo stato di
+                // prima: un rumore che risultava "in corso" da dieci secondi
+                // supererebbe subito la durata minima e diventerebbe un evento
+                // che nessuno ha mai sentito.
+                if (!active && ::detector.isInitialized) detector.reset()
+            },
+        )
+
+        scope.launch {
+            client.messages.collect { message ->
+                if (message is HubMessage.Signal) {
+                    transport?.onSignal(message.from, message.payload)
+                }
+            }
+        }
+
+        scope.launch {
+            transport?.state?.collect { NoiseMonitor.setStream(it) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,7 +126,22 @@ class NoiseMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // Solo microfono: dichiarare anche "camera" qui costringerebbe a
+        // possedere il permesso fotocamera per il semplice monitoraggio, e
+        // Android rifiuterebbe l'avvio del servizio. Il tipo si alza soltanto
+        // quando la fotocamera serve davvero.
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+        )
+
+        // onStartCommand puo arrivare con il servizio gia in ascolto: all apertura
+        // dell app il monitoraggio viene richiesto di nuovo. Senza fermare la
+        // cattura precedente resterebbero due AudioRecord sullo stesso microfono,
+        // e solo l ultimo verrebbe chiuso.
+        audio?.stop()
+        audio = null
 
         detector = RmsNoiseDetector(
             thresholdDb = store.noiseThresholdDb,
@@ -89,7 +151,7 @@ class NoiseMonitorService : Service() {
 
         var blocks = 0
         val source = AudioSource { samples, length ->
-            val event = detector.analyze(samples, length, System.currentTimeMillis())
+            val event = if (talkBackActive) null else detector.analyze(samples, length, System.currentTimeMillis())
             NoiseMonitor.setLevel(detector.currentLevelDb)
             // Un livello ogni due secondi: abbastanza per capire dai log perche
             // un rumore non e stato rilevato, senza inondare logcat.
@@ -133,6 +195,8 @@ class NoiseMonitorService : Service() {
     override fun onDestroy() {
         audio?.stop()
         audio = null
+        scope.launch { transport?.stop() }
+        transport = null
         NoiseMonitor.setArmed(false)
         client.disconnect()
         scope.cancel()
@@ -140,6 +204,28 @@ class NoiseMonitorService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Dichiara ad Android che la fotocamera è in uso, e solo per il tempo in cui
+     * lo è davvero.
+     *
+     * Il tipo va alzato *prima* di aprire la fotocamera e riabbassato quando si
+     * chiude: tenerlo sempre alto obbligherebbe a possedere il permesso anche
+     * per il solo monitoraggio audio.
+     */
+    private fun updateServiceType(cameraInUse: Boolean) {
+        val allowed = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+        val type = if (cameraInUse && allowed) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+
+        runCatching { startForeground(NOTIFICATION_ID, buildNotification(), type) }
+            .onFailure { Log.e(TAG, "tipo del servizio non aggiornato: ${it.message}") }
+    }
 
     private fun buildNotification(): Notification {
         val manager = getSystemService(NotificationManager::class.java)

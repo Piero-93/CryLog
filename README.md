@@ -165,6 +165,3 @@ a proprietary library. So that the combined APK can be distributed without ambig
 The permission covers the Android app only. The Hub links no Google library and is plain GPLv3. See
 [LICENSE-EXCEPTION.txt](LICENSE-EXCEPTION.txt) for the full scope and what it means for
 contributions — in short, contributions are accepted under GPLv3 **with** this permission.
-
-This is a licensing matter and does not affect F-Droid, which rejects proprietary blobs as a matter
-of policy regardless of licensing.

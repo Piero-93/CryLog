@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     implementation(libs.okhttp)
+    implementation(libs.webrtc)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

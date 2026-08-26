@@ -33,6 +33,10 @@ import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.Role
+import it.biagini.crylog.core.StreamRequest
+import it.biagini.crylog.core.StreamTransport
+import it.biagini.crylog.core.TransportState
+import it.biagini.crylog.transport.WebRtcTransport
 import it.biagini.crylog.hub.DeviceStore
 import it.biagini.crylog.hub.HubClient
 import it.biagini.crylog.nursery.BootReceiver
@@ -40,6 +44,7 @@ import it.biagini.crylog.nursery.NoiseMonitor
 import it.biagini.crylog.nursery.NoiseMonitorService
 import it.biagini.crylog.parent.AlertNotifier
 import it.biagini.crylog.parent.Alerter
+import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.SeenEvents
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +69,10 @@ sealed interface UiState {
         val deviceName: String,
         val connection: ConnectionState,
         val events: List<HubMessage> = emptyList(),
+        /** Il Nursery Node attualmente in ascolto, se ce n'è uno. */
+        val nurseryId: String? = null,
+        val nurseryName: String? = null,
+        val stream: TransportState = TransportState.Idle,
     ) : UiState
 }
 
@@ -72,6 +81,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DeviceStore(application)
     private val client = HubClient(viewModelScope)
     private val alerter = Alerter(application, viewModelScope)
+
+    /**
+     * Il trasporto vive nel ViewModel solo per il Parent Node: sul Nursery
+     * appartiene al servizio, che deve poter rispondere anche con l'app chiusa.
+     */
+    private val transport: StreamTransport? = if (store.role == Role.PARENT) {
+        WebRtcTransport(
+            context = application,
+            role = Role.PARENT,
+            sendSignal = { peerId, payload -> client.send(HubProtocol.signal(peerId, payload)) },
+            onRemoteVideo = { track -> RemoteVideo.set(track) },
+        )
+    } else {
+        null
+    }
 
     private val _uiState = MutableStateFlow<UiState>(initialState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -99,6 +123,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             client.messages.collect { message ->
                 handleAlert(message)
+
+                // Il signaling è traffico tecnico fra i due telefoni: non ha
+                // nulla da dire a chi guarda la cronologia.
+                if (message is HubMessage.Signal || message is HubMessage.SignalUndelivered) {
+                    return@collect
+                }
+
                 _uiState.update { current ->
                     if (current !is UiState.Session) return@update current
                     current.copy(events = (listOf(message) + current.events).take(MAX_EVENTS))
@@ -111,6 +142,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (store.isPaired && store.role == Role.PARENT) {
             connect()
             requestFcmToken()
+
+            transport?.let { stream ->
+                viewModelScope.launch {
+                    stream.state.collect { streamState ->
+                        _uiState.update { current ->
+                            if (current is UiState.Session) current.copy(stream = streamState) else current
+                        }
+                    }
+                }
+            }
         }
 
         resumeIfInterrupted()
@@ -249,6 +290,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 SeenEvents.forgetOffline(message.nurseryId)
                 notifier.clearNurseryGone()
                 notifier.notifyWatching(message.nurseryName, message.at)
+                _uiState.update { current ->
+                    if (current !is UiState.Session) return@update current
+                    current.copy(nurseryId = message.nurseryId, nurseryName = message.nurseryName)
+                }
+            }
+
+            is HubMessage.Signal -> viewModelScope.launch {
+                transport?.onSignal(message.from, message.payload)
+            }
+
+            is HubMessage.SignalUndelivered -> {
+                Log.w(TAG, "signaling non consegnato: ${message.reason}")
+                viewModelScope.launch { transport?.stop() }
             }
 
             else -> Unit
@@ -312,6 +366,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             store.sentFcmToken = token
             Log.i(TAG, "token FCM consegnato all'Hub")
         }
+    }
+
+    // --- Ascolto dello stream (Parent Node) ---
+
+    /**
+     * Apre l'ascolto verso il Nursery Node.
+     *
+     * Lo stream parte solo su richiesta: finché nessuno ascolta, il Nursery non
+     * spende nulla per trasmettere e continua soltanto a sorvegliare.
+     */
+    fun startListening(video: Boolean = false, talkBack: Boolean = false) {
+        val session = _uiState.value as? UiState.Session ?: return
+        val nurseryId = session.nurseryId ?: return
+
+        viewModelScope.launch {
+            transport?.start(StreamRequest(peerId = nurseryId, video = video, talkBack = talkBack))
+                ?.onFailure { Log.e(TAG, "avvio stream fallito: ${it.message}") }
+        }
+    }
+
+    // --- Video (Nursery Node) ---
+
+    val audioOnly: Boolean get() = store.audioOnly
+
+    /**
+     * Spegne il video per tutti.
+     *
+     * È il primo dei due interruttori: qualunque cosa chieda un Parent Node,
+     * da qui non esce immagine. Il secondo è la scelta di ciascun Parent, che
+     * può ricevere solo audio anche quando il video sarebbe disponibile.
+     */
+    fun setAudioOnly(enabled: Boolean) {
+        store.audioOnly = enabled
+    }
+
+    /** Accende o spegne il microfono verso la cameretta. */
+    fun setTalking(talking: Boolean) {
+        viewModelScope.launch { transport?.setTalkBackEnabled(talking) }
+    }
+
+    fun stopListening() {
+        viewModelScope.launch { transport?.stop() }
     }
 
     // --- Parent Node ---

@@ -53,6 +53,9 @@ export function parseClientMessage(raw) {
       }
     }
 
+    case 'signal':
+      return parseSignal(msg)
+
     case 'fcm-token': {
       if (typeof msg.token !== 'string' || msg.token.length === 0 || msg.token.length > 512) {
         return { ok: false, error: 'invalid_fcm_token' }
@@ -99,3 +102,34 @@ export const nurseryOnline = (nursery, at) => ({
 })
 
 export const error = (code) => ({ type: 'error', code })
+
+/**
+ * Instradamento del signaling WebRTC.
+ *
+ * L'Hub non guarda dentro il payload: offer, answer e candidati ICE gli sono
+ * opachi. Fa il postino fra due dispositivi accoppiati, e questo basta perche'
+ * il media viaggi poi da telefono a telefono senza passargli davanti.
+ */
+export function parseSignal(msg) {
+  if (typeof msg.to !== 'string' || msg.to.length === 0) {
+    return { ok: false, error: 'invalid_recipient' }
+  }
+  if (msg.payload === null || typeof msg.payload !== 'object' || Array.isArray(msg.payload)) {
+    return { ok: false, error: 'invalid_payload' }
+  }
+  return { ok: true, message: { type: 'signal', to: msg.to, payload: msg.payload } }
+}
+
+export const signal = (fromDeviceId, fromName, payload) => ({
+  type: 'signal',
+  from: fromDeviceId,
+  fromName,
+  payload,
+})
+
+/** Il destinatario non e' raggiungibile: chi ha chiesto lo stream deve saperlo. */
+export const signalUndelivered = (to, reason) => ({
+  type: 'signal-undelivered',
+  to,
+  reason,
+})
