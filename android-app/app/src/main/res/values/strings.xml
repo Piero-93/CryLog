@@ -18,6 +18,9 @@
     <string name="listening_lost">Audio perso: controlla il Nursery Node</string>
     <string name="listening_paused">In pausa: un’altra app sta usando l’audio</string>
 
+    <string name="listening_gone">Il Nursery Node non è collegato: nessuno sta sorvegliando</string>
+    <string name="listening_silence">Silenzia</string>
+
     <string name="channel_alert">Avvisi di rumore</string>
     <string name="channel_alert_description">Notifica quando il Nursery Node sente un rumore</string>
     <string name="alert_title">Rumore rilevato</string>

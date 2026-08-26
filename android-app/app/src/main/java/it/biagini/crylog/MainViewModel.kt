@@ -108,7 +108,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // L'Hub tiene una sessione sola per dispositivo, quindi non possono
         // essere aperte insieme.
         viewModelScope.launch {
-            client.state.collect { if (!store.continuousListening) onConnection(it) }
+            client.state.collect {
+                Log.i(TAG, "Hub (UI): $it, continuo=${store.continuousListening}")
+                if (!store.continuousListening) onConnection(it)
+            }
         }
         viewModelScope.launch {
             ContinuousListening.connection.collect { if (store.continuousListening) onConnection(it) }

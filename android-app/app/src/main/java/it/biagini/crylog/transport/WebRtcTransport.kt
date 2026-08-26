@@ -267,6 +267,7 @@ class WebRtcTransport(
     }
 
     override suspend fun stop() {
+        if (connection != null) Log.i(TAG, "chiusura della sessione")
         peerId?.let { send(SignalPayload.Stop) }
 
         onTalkBack(false)
@@ -312,6 +313,9 @@ class WebRtcTransport(
     private inner class Observer : PeerConnection.Observer {
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            // Quali interfacce WebRTC offre davvero: distingue una tailnet che
+            // non viene enumerata da una che c e ma non instrada.
+            Log.i(TAG, "candidato: ${candidate.sdp}")
             send(SignalPayload.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex))
         }
 

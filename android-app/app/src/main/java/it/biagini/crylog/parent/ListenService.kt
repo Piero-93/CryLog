@@ -32,6 +32,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -89,6 +91,16 @@ class ListenService : Service() {
     private var focusRequest: AudioFocusRequest? = null
     private var alarm: MediaPlayer? = null
 
+    /**
+     * L'allarme e' stato zittito a mano.
+     *
+     * Si riarma da solo quando l'audio torna: silenziare deve costare un tocco,
+     * non la sorveglianza di tutta la notte.
+     */
+    private var alarmSilenced = false
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     private var startedAt = 0L
     private var nurseryId: String? = null
     private var nurseryName: String? = null
@@ -109,6 +121,9 @@ class ListenService : Service() {
     private var backoffMs = FIRST_RETRY_MS
     private var nextAttemptAt = 0L
 
+    /** Quando è partito il tentativo in corso, per non interromperlo a metà. */
+    private var attemptStartedAt = 0L
+
     override fun onCreate() {
         super.onCreate()
         store = DeviceStore(this)
@@ -123,6 +138,7 @@ class ListenService : Service() {
 
         scope.launch {
             client.state.collect { state ->
+                Log.i(TAG, "Hub (servizio): $state")
                 ContinuousListening.setConnection(state)
                 if (state is ConnectionState.Connected) {
                     // Riconnessi all'Hub: la vecchia sessione media non esiste
@@ -153,6 +169,13 @@ class ListenService : Service() {
             return START_NOT_STICKY
         }
 
+        if (intent?.action == ACTION_SILENCE) {
+            stopAlarm()
+            alarmSilenced = true
+            updateNotification()
+            return START_STICKY
+        }
+
         val url = store.hubUrl
         val token = store.deviceToken
         if (url == null || token == null) {
@@ -175,6 +198,7 @@ class ListenService : Service() {
 
         acquireWakeLock()
         requestAudioFocus()
+        watchNetwork()
         client.connect(url, token)
         scope.launch { watchdog() }
 
@@ -189,6 +213,10 @@ class ListenService : Service() {
         runBlocking { transport?.stop() }
         transport = null
         abandonAudioFocus()
+        networkCallback?.let {
+            runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
+        }
+        networkCallback = null
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         client.disconnect()
@@ -215,8 +243,9 @@ class ListenService : Service() {
             val peer = nurseryId
 
             if (peer == null || client.state.value !is ConnectionState.Connected) {
-                // Senza Hub non c'è nessuno a cui chiedere la sessione. Non è
-                // un guasto dello stream: lo dice già il banner della UI.
+                // Senza Hub, o senza Nursery, non c'è nessuno a cui chiedere la
+                // sessione. Non è un guasto dello stream, ed è già raccontato
+                // altrove: qui si aspetta e basta.
                 silentSince = if (silentSince == 0L) now else silentSince
                 continue
             }
@@ -246,8 +275,16 @@ class ListenService : Service() {
             // che non e mai partita: quella la sta guardando chi l'ha accesa.
             if (silentFor >= ALARM_AFTER_MS && everFlowed) startAlarm()
 
-            if (now >= nextAttemptAt) {
+            // Aprire una sessione richiede qualche secondo: piu' del primo
+            // intervallo di backoff. Senza questa guardia il watchdog buttava
+            // giu' sessioni a un soffio dal riuscire e ricominciava da capo, per
+            // sempre. Si aspetta che WebRTC dichiari lui il fallimento.
+            val negotiating = transport?.state?.value is TransportState.Connecting &&
+                now - attemptStartedAt < ESTABLISH_TIMEOUT_MS
+
+            if (!negotiating && now >= nextAttemptAt) {
                 Log.i(TAG, "sessione muta da ${silentFor}ms, riprovo")
+                attemptStartedAt = now
                 reopenSession(peer)
                 nextAttemptAt = now + backoffMs
                 backoffMs = (backoffMs * 2).coerceAtMost(MAX_RETRY_MS)
@@ -264,6 +301,8 @@ class ListenService : Service() {
         silentSince = 0L
         backoffMs = FIRST_RETRY_MS
         nextAttemptAt = 0L
+        // L'audio è tornato: il prossimo guasto deve poter suonare di nuovo.
+        alarmSilenced = false
         stopAlarm()
         ContinuousListening.setHealth(ContinuousListening.Health.LISTENING)
         updateNotification()
@@ -311,6 +350,16 @@ class ListenService : Service() {
             }
 
             is HubMessage.NurseryOnline -> {
+                Log.i(TAG, "nursery online: ${message.nurseryName}")
+                // Riparte subito, senza scontare il backoff accumulato mentre
+                // non c'era nessuno da chiamare. E senza contare quel tempo come
+                // silenzio, o l'allarme ripartirebbe all'istante.
+                backoffMs = FIRST_RETRY_MS
+                nextAttemptAt = 0L
+                silentSince = System.currentTimeMillis()
+                if (ContinuousListening.health.value == ContinuousListening.Health.NURSERY_GONE) {
+                    ContinuousListening.setHealth(ContinuousListening.Health.RECOVERING)
+                }
                 nurseryId = message.nurseryId
                 nurseryName = message.nurseryName
                 SeenEvents.forgetOffline(message.nurseryId)
@@ -320,6 +369,12 @@ class ListenService : Service() {
             }
 
             is HubMessage.NurseryOffline -> {
+                Log.w(TAG, "nursery offline (${message.reason}): chiudo la sessione")
+                // Nessuno sta più sorvegliando: è la cosa più importante che
+                // questo sistema possa dire, e va detta suonando.
+                ContinuousListening.setHealth(ContinuousListening.Health.NURSERY_GONE)
+                startAlarm()
+                updateNotification()
                 notifier.clearWatching()
                 if (SeenEvents.markSeen("offline:${message.nurseryId}")) {
                     notifier.notifyNurseryGone(message.reason)
@@ -344,6 +399,29 @@ class ListenService : Service() {
     }
 
     // --- Audio, energia, allarme ---
+
+    /**
+     * Riprova appena la rete cambia, invece di aspettare il prossimo tentativo.
+     *
+     * Dopo un minuto di guasto il backoff è a trenta secondi: senza questo, un
+     * telefono che rientra nel Wi-Fi di casa resterebbe muto per mezzo minuto
+     * buono pur avendo già tutto quello che gli serve.
+     */
+    private fun watchNetwork() {
+        if (networkCallback != null) return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (backoffMs == FIRST_RETRY_MS && nextAttemptAt == 0L) return
+                Log.i(TAG, "rete disponibile: riprovo subito")
+                backoffMs = FIRST_RETRY_MS
+                nextAttemptAt = 0L
+            }
+        }
+        runCatching {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        }.onFailure { Log.e(TAG, "rete non sorvegliata: ${it.message}") }
+    }
 
     private fun acquireWakeLock() {
         if (wakeLock != null) return
@@ -412,7 +490,7 @@ class ListenService : Service() {
      * telefono sul comodino.
      */
     private fun startAlarm() {
-        if (alarm != null) return
+        if (alarm != null || alarmSilenced) return
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             ?: return
@@ -490,11 +568,28 @@ class ListenService : Service() {
             getString(R.string.listening_title)
         }
 
-        return Notification.Builder(this, CHANNEL_ID)
+        val silence = PendingIntent.getService(
+            this,
+            2,
+            Intent(this, ListenService::class.java).setAction(ACTION_SILENCE),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(getString(healthText()))
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .setContentIntent(open)
+
+        // Prima azione quella che serve subito: a sveglia che suona, zittirla.
+        if (alarm != null) {
+            builder.addAction(
+                Notification.Action.Builder(null, getString(R.string.listening_silence), silence)
+                    .build(),
+            )
+        }
+
+        return builder
             .addAction(
                 Notification.Action.Builder(null, getString(R.string.monitoring_stop), stop).build(),
             )
@@ -512,6 +607,7 @@ class ListenService : Service() {
         ContinuousListening.Health.RECOVERING -> R.string.listening_recovering
         ContinuousListening.Health.LOST -> R.string.listening_lost
         ContinuousListening.Health.PAUSED -> R.string.listening_paused
+        ContinuousListening.Health.NURSERY_GONE -> R.string.listening_gone
     }
 
     companion object {
@@ -520,6 +616,7 @@ class ListenService : Service() {
         private const val NOTIFICATION_ID = 5
         private const val WAKE_LOCK_TAG = "crylog:listening"
         const val ACTION_STOP = "it.biagini.crylog.STOP_LISTENING"
+        const val ACTION_SILENCE = "it.biagini.crylog.SILENCE_ALARM"
 
         private const val TICK_MS = 2_000L
 
@@ -528,6 +625,15 @@ class ListenService : Service() {
 
         /** Quanto si insiste prima di svegliare qualcuno. */
         private const val ALARM_AFTER_MS = 30_000L
+
+        /**
+         * Quanto si lascia a una sessione per formarsi prima di rinunciarci.
+         *
+         * WebRTC dichiara da solo il fallimento in una quindicina di secondi:
+         * questa soglia gli sta appena oltre, cosi' e' lui a decidere e non un
+         * timer che non sa nulla di ICE.
+         */
+        private const val ESTABLISH_TIMEOUT_MS = 20_000L
 
         private const val FIRST_RETRY_MS = 2_000L
         private const val MAX_RETRY_MS = 30_000L

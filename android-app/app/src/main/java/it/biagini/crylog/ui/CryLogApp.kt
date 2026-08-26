@@ -574,7 +574,9 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
         colors = CardDefaults.cardColors(
             containerColor = when {
                 !enabled -> MaterialTheme.colorScheme.surfaceVariant
-                health == ContinuousListening.Health.LOST -> MaterialTheme.colorScheme.errorContainer
+                health == ContinuousListening.Health.LOST ||
+                    health == ContinuousListening.Health.NURSERY_GONE ->
+                    MaterialTheme.colorScheme.errorContainer
                 else -> MaterialTheme.colorScheme.secondaryContainer
             },
         ),
@@ -606,6 +608,8 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
                     ContinuousListening.Health.RECOVERING -> "Audio fermo: sto riprovando"
                     ContinuousListening.Health.LOST -> "Audio perso: controlla il Nursery Node"
                     ContinuousListening.Health.PAUSED -> "In pausa: un'altra app sta usando l'audio"
+                    ContinuousListening.Health.NURSERY_GONE ->
+                        "Il Nursery Node non è collegato: nessuno sta sorvegliando"
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )

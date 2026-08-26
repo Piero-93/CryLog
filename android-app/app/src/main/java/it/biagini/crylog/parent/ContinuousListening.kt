@@ -57,6 +57,15 @@ object ContinuousListening {
         /** Non si recupera: da qui parte l'allarme. */
         LOST,
 
+        /**
+         * Il Nursery Node non e' piu' collegato all'Hub.
+         *
+         * Diverso da [LOST]: li' la sessione non trasporta, qui non c'e'
+         * proprio nessuno dall'altra parte. Confonderli manda il genitore a
+         * controllare la rete quando il problema e' il telefono in cameretta.
+         */
+        NURSERY_GONE,
+
         /** Un'altra app si è presa l'audio, per esempio una telefonata. */
         PAUSED,
     }
