@@ -251,7 +251,14 @@ private fun ConnectForm(
                 value = hubUrl,
                 onValueChange = { hubUrl = it },
                 label = { Text("Indirizzo dell'Hub") },
-                placeholder = { Text("https://crylog.tuo-tailnet.ts.net") },
+                placeholder = {
+                    // Piu' chiaro del testo normale: a piena opacita' sembrava un
+                    // indirizzo gia' scritto, e non si capiva se andasse cancellato.
+                    Text(
+                        "https://crylog.tuo-tailnet.ts.net",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    )
+                },
                 supportingText = { Text("Si chiede una volta sola") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -673,7 +680,18 @@ private fun ListenCard(
                 }
 
                 TransportState.Connecting -> {
-                    Text("Connessione…", style = MaterialTheme.typography.titleMedium)
+                    // Aprire una sessione richiede qualche secondo: senza niente
+                    // che si muova sembra che il tocco non sia arrivato.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Space.Item),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text("Connessione…", style = MaterialTheme.typography.titleMedium)
+                    }
                     OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
                         Text("Annulla")
                     }

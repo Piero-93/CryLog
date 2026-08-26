@@ -278,6 +278,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     store.deviceId = device.deviceId
                     store.deviceToken = device.token
                     store.deviceName = device.name
+                    // Il trasporto si costruisce qui, non solo all'avvio del
+                    // ViewModel: un Parent appena accoppiato non passa da quel
+                    // ramo, e senza questo "Ascolta" non aveva niente da avviare.
+                    rebuildTransport()
                     _uiState.value = UiState.Session(
                         role = device.role,
                         deviceName = device.name,
