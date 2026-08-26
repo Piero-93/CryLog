@@ -3,6 +3,9 @@
 google-services.json
 # Permette di INVIARE push: secret vero. Montata come volume Docker sull'Hub.
 *-service-account*.json
+# Come la scarica la console Firebase, che il pattern sopra non intercetta.
+*firebase-adminsdk*.json
+*.iam.gserviceaccount.com.json
 hub/secrets/
 .env
 !tailscale.env.template
@@ -33,3 +36,9 @@ hub/data/
 *.swp
 Thumbs.db
 desktop.ini
+
+# --- Appunti di lavoro ---
+# Diario di bordo delle sessioni: italiano, dettagli di rete e di macchina.
+# Resta locale. Le convenzioni che servono a chi lavora sul progetto stanno
+# in AGENTS.md.
+/HANDOFF.md
