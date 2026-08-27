@@ -35,8 +35,18 @@ services:
     restart: unless-stopped
 
   crylog-hub:
-    build: .
-    image: crylog-hub:latest
+    # L'immagine viene dal registro, non da una copia del sorgente accanto allo
+    # stack: era quella copia a far divergere le due cartelle a ogni modifica.
+    # Il tag lo pubblica la workflow di release; `latest` segue l'ultimo.
+    #
+    # Finche' il repository e' privato lo e' anche il pacchetto, quindi
+    # l'host deve essersi autenticato una volta:
+    #   echo "$GITHUB_TOKEN" | docker login ghcr.io -u <utente> --password-stdin
+    #
+    # Per costruire in locale invece di scaricare, togliere `image:` e
+    # rimettere `build: .` da questa cartella.
+    image: ghcr.io/piero-93/crylog-hub:latest
+    pull_policy: always
     container_name: crylog-hub
     network_mode: "service:tailscale-crylog"
     depends_on:
