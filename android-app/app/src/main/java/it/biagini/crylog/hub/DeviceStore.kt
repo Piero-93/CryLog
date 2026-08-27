@@ -100,6 +100,11 @@ class DeviceStore(context: Context) {
         get() = prefs.getBoolean(KEY_CONTINUOUS, false)
         set(value) = prefs.edit().putBoolean(KEY_CONTINUOUS, value).apply()
 
+    /** Se l'avviso sull'avvio automatico e' gia' stato mostrato e archiviato. */
+    var autostartNoticeSeen: Boolean
+        get() = prefs.getBoolean(KEY_AUTOSTART_SEEN, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTOSTART_SEEN, value).apply()
+
     // --- Avvisi (Parent Node) ---
 
     var flashOnAlert: Boolean
@@ -161,6 +166,7 @@ class DeviceStore(context: Context) {
         const val KEY_FLASH = "flash_on_alert"
         const val KEY_VIBRATE = "vibrate_on_alert"
         const val KEY_INSIST = "insist_on_alert"
+        const val KEY_AUTOSTART_SEEN = "autostart_notice_seen"
         const val KEY_FCM_TOKEN = "fcm_token_pending"
         const val KEY_FCM_SENT = "fcm_token_sent"
     }

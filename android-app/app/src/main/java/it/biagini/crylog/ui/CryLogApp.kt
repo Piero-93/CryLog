@@ -105,6 +105,9 @@ import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.LocalContentColor
+import it.biagini.crylog.parent.AlertState
+import android.os.Build
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun CryLogApp(
@@ -446,6 +449,23 @@ private fun SessionScreen(
     // Il Parent Node non ha mai avuto bisogno del microfono: il permesso si
     // chiede solo a chi sceglie di poter rispondere.
     val context = LocalContext.current
+    // Il Parent Node non chiedeva mai POST_NOTIFICATIONS: lo chiedeva solo la
+    // schermata del Nursery. Su un telefono nato Parent gli avvisi sarebbero
+    // stati soppressi in silenzio — proprio sul dispositivo che esiste per
+    // riceverli.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val notifyLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { }
+        LaunchedEffect(Unit) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     var micGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -474,6 +494,20 @@ private fun SessionScreen(
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.Item)) {
+            // Un avviso partito mentre l'app e' gia' aperta non ha una notifica
+            // da scartare sotto gli occhi: senza questo comando l'unico modo di
+            // zittirlo era aspettare il tetto dei cinque minuti.
+            val alerting by AlertState.active.collectAsStateWithLifecycle()
+            if (alerting) {
+                NoticeCard(text = "Avviso in corso.", severe = true) {
+                    OutlinedButton(onClick = viewModel::silenceAlert) { Text("Silenzia") }
+                }
+            }
+
+            // Senza avvio automatico, su Xiaomi, il Parent Node non riceve
+            // nessuna push ad app chiusa: e' l'ultima difesa che salta.
+            AutostartCard()
+
             DndAccessCard()
 
             // Il banner compare solo quando c'e' qualcosa da fare: a connessione

@@ -79,6 +79,9 @@ class Alerter(private val context: Context, private val scope: CoroutineScope) {
             stopVibration()
             flashJob?.cancel()
             runCatching { torchOff() }
+            // Anche quando finisce per scadenza: se lo stato restasse acceso, la
+            // schermata continuerebbe a offrire di zittire un avviso gia' morto.
+            AlertState.dismiss()
         }
     }
 
