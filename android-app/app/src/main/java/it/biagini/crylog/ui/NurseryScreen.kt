@@ -94,6 +94,7 @@ fun NurseryScreen(
     val connection by NoiseMonitor.connection.collectAsStateWithLifecycle()
     val eventCount by NoiseMonitor.eventCount.collectAsStateWithLifecycle()
     val history by NoiseMonitor.history.collectAsStateWithLifecycle()
+    val listeners by NoiseMonitor.listeners.collectAsStateWithLifecycle()
 
     // rememberSaveable e non remember: con `remember` bastava ruotare lo schermo
     // per veder tornare indietro la sensibilità appena regolata.
@@ -160,9 +161,14 @@ fun NurseryScreen(
             title = if (armed) "In ascolto" else "Non sta monitorando",
             status = when {
                 !armed -> "Il microfono è spento"
-                connection is ConnectionState.Connected -> "Gli avvisi arrivano ai Parent Node"
+                connection !is ConnectionState.Connected && connection !is ConnectionState.Connecting ->
+                    "Senza Hub gli avvisi non partono"
                 connection is ConnectionState.Connecting -> "Connessione all'Hub…"
-                else -> "Senza Hub gli avvisi non partono"
+                // Chi sta ascoltando conta più del fatto che l'Hub risponda: se
+                // qualcuno è collegato, l'Hub per forza risponde.
+                listeners == 1 -> "Un dispositivo sta ascoltando"
+                listeners > 1 -> "$listeners dispositivi stanno ascoltando"
+                else -> "Gli avvisi arrivano ai Parent Node"
             },
             tone = when {
                 !armed -> HeroTone.IDLE

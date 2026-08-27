@@ -78,6 +78,18 @@ class NoiseMonitorService : Service() {
      */
     @Volatile private var talkBackActive = false
 
+    /**
+     * Se la cattura e la connessione sono gia' in piedi.
+     *
+     * `onStartCommand` puo' essere richiamato su un servizio gia' avviato, e
+     * senza questa guardia rifaceva tutto da capo: fermava la cattura audio,
+     * azzerava il rilevatore — perdendo anche il suo cooldown — e riapriva la
+     * connessione all'Hub. Dal lato dell'Hub quella riapertura e' un Nursery
+     * Node che sparisce e torna, con l'allarme "nessuno sta sorvegliando" che
+     * ne consegue: succedeva ogni pochi secondi senza che niente fosse rotto.
+     */
+    private var running = false
+
     override fun onCreate() {
         super.onCreate()
         store = DeviceStore(this)
@@ -96,6 +108,7 @@ class NoiseMonitorService : Service() {
             sendSignal = { peerId, payload -> client.send(HubProtocol.signal(peerId, payload)) },
             audioOnly = { store.audioOnly },
             onCameraInUse = ::updateServiceType,
+            onListeners = NoiseMonitor::setListeners,
             onTalkBack = { active ->
                 Log.i(TAG, "talk-back=$active")
                 talkBackActive = active
@@ -136,18 +149,33 @@ class NoiseMonitorService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
 
-        // onStartCommand puo arrivare con il servizio gia in ascolto: all apertura
-        // dell app il monitoraggio viene richiesto di nuovo. Senza fermare la
-        // cattura precedente resterebbero due AudioRecord sullo stesso microfono,
-        // e solo l ultimo verrebbe chiuso.
+        // Le regolazioni si applicano a caldo. Fermare e riavviare il servizio
+        // faceva cadere il WebSocket, e per l'Hub un Nursery Node che sparisce e
+        // torna e' un Nursery Node offline: cambiare la sensibilita' mandava un
+        // falso allarme a tutti i Parent, e faceva scattare qui la notifica
+        // "non sto sorvegliando". Il rilevatore invece si ricrea davvero,
+        // perche' soglia e tempi sono suoi.
+        if (intent?.action == ACTION_RELOAD) {
+            if (running) {
+                detector = buildDetector()
+                Log.i(TAG, "impostazioni ricaricate senza interrompere l'ascolto")
+                return START_STICKY
+            }
+        }
+
+        // Gia' in ascolto: non c'e' niente da rifare. Le impostazioni si
+        // applicano fermando e riavviando il servizio, e quel percorso passa da
+        // onDestroy, che rimette `running` a false.
+        if (running) return START_STICKY
+        running = true
+
+        // Se comunque restasse una cattura di un avvio precedente va chiusa:
+        // due AudioRecord sullo stesso microfono, e solo l'ultimo verrebbe poi
+        // fermato.
         audio?.stop()
         audio = null
 
-        detector = RmsNoiseDetector(
-            thresholdDb = store.noiseThresholdDb,
-            minDurationMs = store.noiseMinDurationMs,
-            cooldownMs = store.noiseCooldownMs,
-        )
+        detector = buildDetector()
 
         var blocks = 0
         val source = AudioSource { samples, length ->
@@ -196,7 +224,14 @@ class NoiseMonitorService : Service() {
         return START_STICKY
     }
 
+    private fun buildDetector(): NoiseDetector = RmsNoiseDetector(
+        thresholdDb = store.noiseThresholdDb,
+        minDurationMs = store.noiseMinDurationMs,
+        cooldownMs = store.noiseCooldownMs,
+    )
+
     override fun onDestroy() {
+        running = false
         // Se `armed` è ancora acceso, nessuno ha chiesto di smettere: il
         // servizio sta morendo per conto suo, e va detto.
         if (store.armed) {
@@ -283,9 +318,21 @@ class NoiseMonitorService : Service() {
         private const val CHANNEL_ID = "monitoring"
         private const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "it.biagini.crylog.STOP_MONITORING"
+        const val ACTION_RELOAD = "it.biagini.crylog.RELOAD_SETTINGS"
 
         fun start(context: Context) {
             val intent = Intent(context, NoiseMonitorService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        /** Applica le regolazioni senza interrompere l'ascolto. */
+        fun reload(context: Context) {
+            val intent = Intent(context, NoiseMonitorService::class.java)
+                .setAction(ACTION_RELOAD)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

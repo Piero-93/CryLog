@@ -31,7 +31,6 @@ import it.biagini.crylog.core.Role
 import it.biagini.crylog.hub.DeviceStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 
 /**
  * Riceve le push quando l'app è chiusa o il telefono dorme.
@@ -41,8 +40,6 @@ import kotlinx.coroutines.cancel
  * servirebbe di più.
  */
 class CryLogMessagingService : FirebaseMessagingService() {
-
-    private val scope = CoroutineScope(SupervisorJob())
 
     override fun onMessageReceived(message: RemoteMessage) {
         val store = DeviceStore(this)
@@ -59,10 +56,14 @@ class CryLogMessagingService : FirebaseMessagingService() {
                     return
                 }
 
-                AlertNotifier(this).notifyNoise(eventId)
-                Alerter(this, scope).alert(
+                // La preferenza vale anche qui: ad app chiusa l'avviso faceva
+                // un impulso solo, perche' questo percorso non la leggeva
+                // proprio — ed e' il caso in cui insistere serve di piu'.
+                AlertNotifier(this).notifyNoise(eventId, untilDismissed = store.insistOnAlert)
+                Alerter(applicationContext, alertScope).alert(
                     vibrate = store.vibrateOnAlert,
                     flash = store.flashOnAlert,
+                    untilDismissed = store.insistOnAlert,
                 )
             }
 
@@ -73,9 +74,10 @@ class CryLogMessagingService : FirebaseMessagingService() {
                 if (!SeenEvents.markSeen("offline:$nurseryId")) return
 
                 AlertNotifier(this).notifyNurseryGone(message.data["reason"])
-                Alerter(this, scope).alert(
+                Alerter(applicationContext, alertScope).alert(
                     vibrate = store.vibrateOnAlert,
                     flash = store.flashOnAlert,
+                    untilDismissed = store.insistOnAlert,
                 )
             }
 
@@ -93,12 +95,18 @@ class CryLogMessagingService : FirebaseMessagingService() {
         Log.i(TAG, "nuovo token FCM, in attesa di consegnarlo all'Hub")
     }
 
-    override fun onDestroy() {
-        scope.cancel()
-        super.onDestroy()
-    }
-
     private companion object {
         const val TAG = "CryLogPush"
+
+        /**
+         * Lo scope dell'avviso non puo' essere quello del servizio.
+         *
+         * Un `FirebaseMessagingService` vive il tempo di consegnare il
+         * messaggio: legare il ciclo dell'avviso al suo scope significava
+         * cancellarlo pochi istanti dopo averlo avviato, e infatti ad app
+         * chiusa si vedeva un lampo solo. Questo vive quanto il processo — che
+         * e' comunque il limite oltre il quale il sistema puo' fermarci.
+         */
+        val alertScope = CoroutineScope(SupervisorJob())
     }
 }

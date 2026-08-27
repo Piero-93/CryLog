@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Traffico in chiaro, solo nelle build di debug.
+
+  Sulla tailnet l'Hub sta dietro `tailscale serve`, quindi HTTPS con un
+  certificato vero, e WireGuard sotto. Un telefono senza Tailscale però l'Hub lo
+  raggiunge solo per indirizzo di LAN, dove non c'è nessun certificato: resta
+  HTTP in chiaro sulla porta pubblicata.
+
+  Il costo è reale: sulla rete locale il token del dispositivo viaggia in chiaro
+  e chi è sulla stessa rete può leggerlo. Su una rete di casa è un rischio
+  contenuto, ma non è zero, e per questo la deroga vale solo qui — l'APK di
+  release continua a rifiutare il traffico non cifrato.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

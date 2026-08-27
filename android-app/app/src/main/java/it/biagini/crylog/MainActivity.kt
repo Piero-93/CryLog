@@ -37,8 +37,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import it.biagini.crylog.ui.CryLogApp
 import it.biagini.crylog.ui.CryLogTheme
+import it.biagini.crylog.parent.AlertState
 
 class MainActivity : ComponentActivity() {
+    /**
+     * Tornare nell'app zittisce l'avviso.
+     *
+     * Toccare la notifica la fa sparire senza passare dall'intento di
+     * cancellazione — `setAutoCancel` rimuove e apre, e basta — quindi l'avviso
+     * continuava a vibrare con la notifica ormai sparita e nessun comando
+     * rimasto. Se sei qui a guardare lo schermo, l'avviso ha gia' funzionato.
+     */
+    override fun onResume() {
+        super.onResume()
+        AlertState.dismiss()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
