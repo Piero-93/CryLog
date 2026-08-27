@@ -41,14 +41,43 @@ disarmed, regardless of whether any Parent Node is connected.
 
 The corollary is that a dropped stream degrades the experience but never the safety property.
 
-### One audio capture, two consumers
+### Two audio captures, and it should be one
 
-Noise detection is always running and WebRTC also wants the microphone. Two concurrent
-`AudioRecord` instances are fragile on Android, so there is exactly one capture: the WebRTC SDK's
-`JavaAudioDeviceModule` owns it, and the `NoiseDetector` reads the same buffers through
-`SamplesReadyCallback`.
+Noise detection is always running and WebRTC also wants the microphone, so while a stream is open
+the Nursery Node holds **two** `AudioRecord` instances. It works — verified on Android 14 — and it
+is why `minSdk` is 29, where concurrent capture became officially supported. It is also fragile by
+construction, and depends on a device being willing to grant the second one.
 
-This is why `minSdk` is 29: API 29 is where concurrent audio capture became officially supported.
+The intended design is a single capture with two consumers: the WebRTC SDK's
+`JavaAudioDeviceModule` owns the microphone and the `NoiseDetector` reads the same buffers through
+`SamplesReadyCallback`. It is not written yet. This section used to claim it was.
+
+### WebRTC has to be told about the tailnet
+
+WebRTC's Android network monitor enumerates the networks `ConnectivityManager` reports, and the
+Tailscale `tun` is not among them. With the monitor on, the ICE candidates contain only physical
+interfaces: the media then travels over the local LAN and works **only while both phones are on the
+same Wi-Fi**, which is easy to mistake for working everywhere.
+
+`WebRtcFactory` therefore disables that monitor, which sends WebRTC back to enumerating interfaces
+from the system, `tun` included. Both tailnet addresses then appear, v4 and v6, and a Parent Node on
+mobile data alone reaches a Nursery Node on someone else's Wi-Fi.
+
+The trade is that WebRTC no longer receives network-change notifications. `ListenService` watches
+connectivity itself and knows what to reopen, so a network change costs a few seconds of silence
+instead of no connection at all away from home.
+
+### Monitoring cannot resume on its own
+
+Since Android 14 a foreground service of type `microphone` will not start from a background process
+— the constraint is on `RECORD_AUDIO` being a while-in-use permission, so it applies to
+`BOOT_COMPLETED` and to every other broadcast alike. Attempting it does not even leave an error to
+handle: `startForegroundService` succeeds and queues the start, then the service dies with a
+`SecurityException` and the system backs off for half an hour.
+
+So the Nursery Node warns instead, on its own high-importance channel, and waits to be reopened. The
+platform is right to forbid the rest: an app that turns the microphone back on by itself, quietly,
+is exactly what these rules exist for.
 
 ### WebRTC only, behind a transport interface
 

@@ -42,6 +42,14 @@ android {
         // il numero del suo tag invece di uno inciso nel file.
         versionCode = (findProperty("crylogVersionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("crylogVersionName") as String?) ?: "0.1.0"
+
+        // Solo arm64. Le librerie native di WebRTC arrivano per quattro
+        // architetture e sono la gran parte del peso dell'APK: con minSdk 29
+        // un telefono a 32 bit e' una rarita', e tenerle tutte significa far
+        // scaricare tre copie inutili a chiunque.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
