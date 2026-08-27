@@ -27,6 +27,9 @@ package it.biagini.crylog.parent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Se l'avviso in corso è stato preso in carico da qualcuno.
@@ -37,19 +40,28 @@ import android.content.Intent
  */
 object AlertState {
 
-    @Volatile
-    private var dismissed = true
+    /**
+     * Se c'e' un avviso che sta insistendo in questo momento.
+     *
+     * Osservabile e non solo leggibile: la schermata deve poter offrire un modo
+     * di zittirlo. Senza, un avviso partito mentre l'app e' gia' aperta non
+     * aveva nessun comando che lo fermasse — la notifica che lo avrebbe
+     * scartato spariva al primo tocco, e restava solo aspettare il tetto dei
+     * cinque minuti.
+     */
+    private val _active = MutableStateFlow(false)
+    val active: StateFlow<Boolean> = _active.asStateFlow()
 
     /** Un nuovo avviso comincia: da qui in poi insiste. */
     fun arm() {
-        dismissed = false
+        _active.value = true
     }
 
     fun dismiss() {
-        dismissed = true
+        _active.value = false
     }
 
-    val isDismissed: Boolean get() = dismissed
+    val isDismissed: Boolean get() = !_active.value
 }
 
 /**

@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import it.biagini.crylog.parent.AlertState
 
 sealed interface UiState {
 
@@ -366,10 +367,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         restartIfArmed()
     }
 
+    /**
+     * Applica le regolazioni al servizio, senza fermarlo.
+     *
+     * Prima si fermava e si riavviava, il che faceva cadere la connessione
+     * all'Hub: per tutti i Parent Node il Nursery spariva e tornava, cioe' un
+     * falso "nessuno sta sorvegliando" a ogni tocco sulla sensibilita'.
+     */
     private fun restartIfArmed() {
         if (!store.armed) return
-        NoiseMonitorService.stop(getApplication())
-        NoiseMonitorService.start(getApplication())
+        NoiseMonitorService.reload(getApplication())
     }
 
     /**
@@ -570,6 +577,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setFlash(enabled: Boolean) { store.flashOnAlert = enabled }
 
     val insistOnAlert: Boolean get() = store.insistOnAlert
+
+    /**
+     * Zittisce l'avviso in corso.
+     *
+     * Aprire l'app non basta piu' a scartare la notifica: toccarla la fa
+     * sparire senza passare dall'intento di cancellazione, e l'avviso restava
+     * a vibrare senza piu' niente che lo fermasse.
+     */
+    fun silenceAlert() {
+        AlertState.dismiss()
+        alerter.stop()
+    }
 
     fun setInsist(enabled: Boolean) { store.insistOnAlert = enabled }
 
