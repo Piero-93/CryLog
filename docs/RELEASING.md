@@ -74,11 +74,23 @@ source, which is what it does today and what makes the two repositories drift.
 
 ## What is deliberately not done
 
-**R8 is off.** Turning it on would strip the unused Material icons, which are
-most of the APK's size — but WebRTC, OkHttp and Firebase all reach for classes
-by name, and switching on shrinking without first verifying their rules is the
-classic way to discover in production that something was removed. It is worth
-doing, with a test install afterwards, not as part of a release.
+**R8 is on, and it took a real install to make it safe.** It takes the APK from
+66 MB to 21.7 MB — the dex alone goes from 47 MB to 3, because
+`material-icons-extended` compiles thousands of icons into code and this app
+uses seven of them.
+
+Keeping `org.webrtc` was not enough. This build of WebRTC uses Chromium's
+`jni_zero` glue, which lives in its own package and is looked up **by name**
+from `JNI_OnLoad`, so R8 removed it as dead code. The failure is the nastiest
+shape there is: the build is green, the app starts, the whole interface works —
+and the process dies of SIGTRAP the first time somebody presses listen, leaving
+one line in logcat:
+
+    ClassNotFoundException: org.jni_zero.JniInit
+
+Which is the point: **verify a release APK by installing it and using the
+feature**, not by looking at a green build. If a future dependency starts
+reaching for classes by name, this is how it will announce itself.
 
 **The image is built for amd64 only.** That is what the NAS runs. Adding arm64
 means `docker buildx` and roughly double the build time, and nothing needs it

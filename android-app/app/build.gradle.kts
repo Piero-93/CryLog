@@ -21,12 +21,15 @@ if (firebaseConfigured) {
 val keystorePath: String? = System.getenv("CRYLOG_KEYSTORE")
 val keystorePassword: String? = System.getenv("CRYLOG_KEYSTORE_PASSWORD")
 val keystoreAlias: String? = System.getenv("CRYLOG_KEY_ALIAS")
-val keyPassword: String? = System.getenv("CRYLOG_KEY_PASSWORD")
+// Non "keyPassword": dentro il blocco della firma quel nome appartiene alla
+// configurazione stessa e ombreggia questa variabile, quindi l'assegnazione
+// finiva per copiare la proprieta' su se stessa e lasciarla vuota.
+val keySecret: String? = System.getenv("CRYLOG_KEY_PASSWORD")
 val signingReady = !keystorePath.isNullOrBlank() &&
     file(keystorePath).exists() &&
     !keystorePassword.isNullOrBlank() &&
     !keystoreAlias.isNullOrBlank() &&
-    !keyPassword.isNullOrBlank()
+    !keySecret.isNullOrBlank()
 
 android {
     namespace = "it.biagini.crylog"
@@ -60,7 +63,7 @@ android {
                 storeFile = file(keystorePath!!)
                 storePassword = keystorePassword
                 keyAlias = keystoreAlias
-                this.keyPassword = keyPassword
+                keyPassword = keySecret
             }
         }
     }
@@ -72,11 +75,12 @@ android {
             } else {
                 logger.lifecycle("chiave di firma assente: l'APK di release non sara' firmato")
             }
-            // R8 spento per ora: le icone di Material inutilizzate resterebbero
-            // dentro, ma accenderlo senza aver verificato le regole di WebRTC,
-            // OkHttp e Firebase e' il modo classico di scoprire in produzione
-            // che qualcosa e' stato rimosso di troppo.
-            isMinifyEnabled = false
+            // R8 acceso: senza, l'APK porta dentro tutte le icone di Material
+            // — quasi cinquanta megabyte su sessantasei, per sette icone usate.
+            // Le regole in proguard-rules.pro tengono WebRTC, che dal lato
+            // nativo chiama il codice Java per nome e sembrerebbe morto.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
