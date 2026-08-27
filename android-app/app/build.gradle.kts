@@ -14,6 +14,20 @@ if (firebaseConfigured) {
     logger.lifecycle("google-services.json assente: build senza notifiche push")
 }
 
+// La firma di release arriva dall'ambiente, mai dal repository: perdere quella
+// chiave significa non poter piu' aggiornare le installazioni esistenti, e
+// averla nel repo significa che chiunque puo' pubblicare aggiornamenti a nome
+// tuo. Senza, il build funziona lo stesso e produce un APK non firmato.
+val keystorePath: String? = System.getenv("CRYLOG_KEYSTORE")
+val keystorePassword: String? = System.getenv("CRYLOG_KEYSTORE_PASSWORD")
+val keystoreAlias: String? = System.getenv("CRYLOG_KEY_ALIAS")
+val keyPassword: String? = System.getenv("CRYLOG_KEY_PASSWORD")
+val signingReady = !keystorePath.isNullOrBlank() &&
+    file(keystorePath).exists() &&
+    !keystorePassword.isNullOrBlank() &&
+    !keystoreAlias.isNullOrBlank() &&
+    !keyPassword.isNullOrBlank()
+
 android {
     namespace = "it.biagini.crylog"
     compileSdk = 37
@@ -24,12 +38,34 @@ android {
         // il design a microfono condiviso fra rilevamento rumore e streaming.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Sovrascrivibili dalla riga di comando, cosi' una release puo' portare
+        // il numero del suo tag invece di uno inciso nel file.
+        versionCode = (findProperty("crylogVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("crylogVersionName") as String?) ?: "0.1.0"
+    }
+
+    signingConfigs {
+        if (signingReady) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePassword
+                keyAlias = keystoreAlias
+                this.keyPassword = keyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (signingReady) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.lifecycle("chiave di firma assente: l'APK di release non sara' firmato")
+            }
+            // R8 spento per ora: le icone di Material inutilizzate resterebbero
+            // dentro, ma accenderlo senza aver verificato le regole di WebRTC,
+            // OkHttp e Firebase e' il modo classico di scoprire in produzione
+            // che qualcosa e' stato rimosso di troppo.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
