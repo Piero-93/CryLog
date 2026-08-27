@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sovrapposizione valida solo per le build di debug.
+
+  Serve a poter puntare l'app a un Hub raggiunto per indirizzo di LAN, senza
+  certificato, su un telefono che non ha Tailscale. La build di release non la
+  vede: lì il traffico in chiaro resta vietato.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+
+</manifest>
