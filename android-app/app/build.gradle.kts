@@ -43,12 +43,14 @@ android {
         versionCode = (findProperty("crylogVersionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("crylogVersionName") as String?) ?: "0.1.0"
 
-        // Solo arm64. Le librerie native di WebRTC arrivano per quattro
-        // architetture e sono la gran parte del peso dell'APK: con minSdk 29
-        // un telefono a 32 bit e' una rarita', e tenerle tutte significa far
-        // scaricare tre copie inutili a chiunque.
+        // Le librerie native di WebRTC arrivano per quattro architetture e
+        // pesano piu' di tutto il resto messo insieme, ma toglierne troppe
+        // esclude dei telefoni: il Galaxy J6 di prova ha Android 10 e una ROM
+        // a 32 bit, quindi con il solo arm64 l'app si installa e poi non
+        // riesce a caricare WebRTC. Restano le due che contano; x86 e x86_64
+        // servono solo agli emulatori.
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 

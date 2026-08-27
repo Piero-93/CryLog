@@ -28,6 +28,8 @@ are deliberately avoided: the Nursery Node is a server for media but a client to
   dedicated foreground service. Alerts fire whether or not anyone is watching a stream.
 - **On-demand audio/video** over WebRTC, peer-to-peer, with adaptive bitrate.
 - **Continuous listening**, opt-in: keep the audio open all night with the screen off.
+- **Up to three Parent Nodes at once**, each choosing audio or audio and video for itself. The
+  nursery's microphone and camera are opened once and shared between them.
 - **Never an ambiguous silence.** If a stream dies, the Parent Node retries and then raises an
   audible alarm. If the Nursery Node goes offline, the Hub tells every Parent Node.
 - **Video is always optional**, at two independent levels: globally on the Nursery Node
@@ -152,13 +154,13 @@ Everything else runs on hardware you own.
 | 6 | Continuous listening with reconnect watchdog and alarm | ✅ |
 | 7 | Streaming away from the local network, over the tailnet | ✅ |
 | 8 | Role changes without re-pairing, CI, interface pass | ✅ |
-| 9 | Several Parent Nodes listening at once | in progress |
+| 9 | Several Parent Nodes listening at once | ✅ |
 
 ## Known limitations
 
-- **One Parent Node at a time.** A second request is refused rather than silently dropping the
-  first. Several at once is being worked on, and will stay capped: without an SFU every listener is
-  another upstream from the phone in the room.
+- **Three Parent Nodes at once, and no more.** Without an SFU every listener is another upstream
+  from the phone in the room; past that the uplink saturates and the quality drops for everybody. A
+  fourth request is refused rather than degrading the three already listening.
 - **Monitoring cannot restart itself.** Since Android 14 a foreground service that uses the
   microphone cannot be started from the background — the restriction is on `RECORD_AUDIO`, which is
   granted only while an app is in use. So after a reboot, an app update, or the system reclaiming
