@@ -1,0 +1,111 @@
+name: Release
+
+# Solo su tag: una release e' un atto deliberato, non l'effetto collaterale di
+# un push. Il tag decide anche il numero di versione, cosi' l'APK non puo'
+# dichiarare una versione diversa da quella della release che lo contiene.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  hub:
+    name: Immagine dell'Hub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Versione dal tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Niente action di terze parti: il registro di GitHub si raggiunge con
+      # docker e basta, e il token che serve lo fornisce gia' la workflow.
+      - name: Login su GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build e push
+        working-directory: hub
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/crylog-hub
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          docker build -t "$IMAGE:$VERSION" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+
+  android:
+    name: APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Versione dal tag
+        id: version
+        run: |
+          echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          # Un intero che cresce sempre: Android rifiuta di installare un
+          # aggiornamento con versionCode minore o uguale al precedente.
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # Il file di Firebase non sta nel repo. Senza il segreto il build riesce
+      # lo stesso, ma l'APK esce senza notifiche push: meglio dirlo forte.
+      - name: Configurazione Firebase
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES" ]; then
+            echo "::warning::GOOGLE_SERVICES_JSON assente: APK senza notifiche push"
+          else
+            echo "$GOOGLE_SERVICES" | base64 -d > android-app/app/google-services.json
+          fi
+
+      # La chiave di firma e' l'identita' dell'app per sempre: se cambia, le
+      # installazioni esistenti non si aggiornano piu' e vanno disinstallate.
+      - name: Chiave di firma
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::ANDROID_KEYSTORE assente: un APK non firmato non si installa"
+            exit 1
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/crylog.jks"
+
+      - name: Build
+        working-directory: android-app
+        env:
+          CRYLOG_KEYSTORE: ${{ runner.temp }}/crylog.jks
+          CRYLOG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CRYLOG_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CRYLOG_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PcrylogVersionName="${{ steps.version.outputs.name }}" \
+            -PcrylogVersionCode="${{ steps.version.outputs.code }}"
+
+      - name: Allega alla release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          APK=$(find android-app/app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$APK" "crylog-$VERSION.apk"
+          gh release create "$GITHUB_REF_NAME" --generate-notes --title "CryLog $VERSION" || true
+          gh release upload "$GITHUB_REF_NAME" "crylog-$VERSION.apk" --clobber
+
+      # La chiave non deve sopravvivere al job, nemmeno per sbaglio.
+      - name: Pulizia
+        if: always()
+        run: rm -f "$RUNNER_TEMP/crylog.jks" android-app/app/google-services.json

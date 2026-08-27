@@ -28,18 +28,20 @@ are deliberately avoided: the Nursery Node is a server for media but a client to
   dedicated foreground service. Alerts fire whether or not anyone is watching a stream.
 - **On-demand audio/video** over WebRTC, peer-to-peer, with adaptive bitrate.
 - **Continuous listening**, opt-in: keep the audio open all night with the screen off.
+- **Up to three Parent Nodes at once**, each choosing audio or audio and video for itself. The
+  nursery's microphone and camera are opened once and shared between them.
 - **Never an ambiguous silence.** If a stream dies, the Parent Node retries and then raises an
   audible alarm. If the Nursery Node goes offline, the Hub tells every Parent Node.
 - **Video is always optional**, at two independent levels: globally on the Nursery Node
   ("audio only"), and per-connection on each Parent Node.
-- **Multiple Parent Nodes** simultaneously, each with its own independent audio/video choice.
 - **Talk-back** from a Parent Node to the nursery.
 - **Event history**: timestamp, duration and intensity of every noise event. No audio is ever stored.
 
 ## Requirements
 
-- **Android 10 (API 29) or newer** on both devices. API 29 is required for concurrent audio capture,
-  which lets noise detection and streaming share a single microphone.
+- **Android 10 (API 29) or newer** on both devices. API 29 is where Android began allowing two
+  apps — or two parts of one app — to record at the same time, which is what lets noise detection
+  keep running while a stream is open.
 - **Tailscale** on both phones and on the host running the Hub.
 - A host for the Hub with **Docker** and **Node.js 24+** (a TrueNAS SCALE box, a Raspberry Pi, any
   always-on machine on your tailnet).
@@ -111,7 +113,22 @@ app still builds; without the service account the Hub starts and says so in its 
 
 ### Android app
 
-Open `android-app/` in Android Studio and run. Requires JDK 17 and AGP 9.3.
+Install `crylog-<version>.apk` from the
+[latest release](https://github.com/Piero-93/CryLog/releases/latest) on both phones. It is built for
+arm64 only, which every phone new enough to run Android 10 is.
+
+To build it yourself: open `android-app/` in Android Studio and run. Requires JDK 21 and AGP 9.3.
+Without `google-services.json` the build still works — it just has no push notifications.
+
+### Before it will work
+
+Both phones need Tailscale, signed into the same tailnet as the Hub.
+
+On Xiaomi, Redmi and POCO phones (MIUI/HyperOS) the Nursery Node **also needs autostart granted**,
+under Settings → Apps → CryLog. Without it the system refuses to launch the app for its own
+broadcasts, and monitoring will not tell you it has stopped — the only warning left is the offline
+alert the Hub sends to the Parent Node. Turning off battery restrictions for the app is worth doing
+at the same time.
 
 ## Privacy
 
@@ -128,19 +145,30 @@ Everything else runs on hardware you own.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Repo scaffolding, Hub health check | ✅ done |
-| 1 | Hub: SQLite, pairing, authenticated WebSocket, fan-out, offline watchdog | |
-| 2 | App skeleton: role selection, pairing, Hub connection | |
-| 3 | Noise detection, foreground service, vibration + flash alert | first usable version |
-| 4 | FCM push | |
-| 5 | WebRTC: multi-viewer, per-viewer audio/video, talk-back | |
-| 6 | Continuous listening with reconnect watchdog and alarm | |
-| 7 | Power management, device capability warnings, event history UI | |
+| 0 | Repo scaffolding, Hub health check | ✅ |
+| 1 | Hub: SQLite, pairing, authenticated WebSocket, fan-out, offline watchdog | ✅ |
+| 2 | App skeleton: role selection, pairing, Hub connection | ✅ |
+| 3 | Noise detection, foreground service, vibration + flash alert | ✅ first usable version |
+| 4 | FCM push | ✅ |
+| 5 | WebRTC streaming, per-viewer audio/video, talk-back | ✅ |
+| 6 | Continuous listening with reconnect watchdog and alarm | ✅ |
+| 7 | Streaming away from the local network, over the tailnet | ✅ |
+| 8 | Role changes without re-pairing, CI, interface pass | ✅ |
+| 9 | Several Parent Nodes listening at once | ✅ |
 
 ## Known limitations
 
-- **WebRTC mesh, no SFU.** Beyond roughly four simultaneous Parent Nodes the Nursery Node's upload
-  saturates. An SFU would lift this; it is not planned.
+- **Three Parent Nodes at once, and no more.** Without an SFU every listener is another upstream
+  from the phone in the room; past that the uplink saturates and the quality drops for everybody. A
+  fourth request is refused rather than degrading the three already listening.
+- **Monitoring cannot restart itself.** Since Android 14 a foreground service that uses the
+  microphone cannot be started from the background — the restriction is on `RECORD_AUDIO`, which is
+  granted only while an app is in use. So after a reboot, an app update, or the system reclaiming
+  memory, the Nursery Node says it has stopped and waits to be reopened. It cannot quietly turn the
+  microphone back on, and that rule is the right one.
+- **Do Not Disturb bypass has to be granted before first use.** A notification channel's ability to
+  sound through Do Not Disturb is fixed when the channel is created and cannot be raised afterwards.
+  Granting the permission later has no effect until the app's data is cleared.
 - **Threshold-only detection.** CryLog cannot tell crying from a passing truck. The `NoiseDetector`
   interface exists so a classifier can replace the threshold without touching anything else.
 - **Not publishable on F-Droid.** FCM's proprietary library is not permitted in F-Droid builds. A

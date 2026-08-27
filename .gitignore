@@ -23,6 +23,8 @@ android-app/captures/
 *.apk
 *.aab
 *.keystore
+*.jks
+*.jks.base64
 !debug.keystore
 
 # --- Node ---

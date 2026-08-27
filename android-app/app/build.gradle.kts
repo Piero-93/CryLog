@@ -14,6 +14,23 @@ if (firebaseConfigured) {
     logger.lifecycle("google-services.json assente: build senza notifiche push")
 }
 
+// La firma di release arriva dall'ambiente, mai dal repository: perdere quella
+// chiave significa non poter piu' aggiornare le installazioni esistenti, e
+// averla nel repo significa che chiunque puo' pubblicare aggiornamenti a nome
+// tuo. Senza, il build funziona lo stesso e produce un APK non firmato.
+val keystorePath: String? = System.getenv("CRYLOG_KEYSTORE")
+val keystorePassword: String? = System.getenv("CRYLOG_KEYSTORE_PASSWORD")
+val keystoreAlias: String? = System.getenv("CRYLOG_KEY_ALIAS")
+// Non "keyPassword": dentro il blocco della firma quel nome appartiene alla
+// configurazione stessa e ombreggia questa variabile, quindi l'assegnazione
+// finiva per copiare la proprieta' su se stessa e lasciarla vuota.
+val keySecret: String? = System.getenv("CRYLOG_KEY_PASSWORD")
+val signingReady = !keystorePath.isNullOrBlank() &&
+    file(keystorePath).exists() &&
+    !keystorePassword.isNullOrBlank() &&
+    !keystoreAlias.isNullOrBlank() &&
+    !keySecret.isNullOrBlank()
+
 android {
     namespace = "it.biagini.crylog"
     compileSdk = 37
@@ -24,13 +41,46 @@ android {
         // il design a microfono condiviso fra rilevamento rumore e streaming.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Sovrascrivibili dalla riga di comando, cosi' una release puo' portare
+        // il numero del suo tag invece di uno inciso nel file.
+        versionCode = (findProperty("crylogVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("crylogVersionName") as String?) ?: "0.1.0"
+
+        // Le librerie native di WebRTC arrivano per quattro architetture e
+        // pesano piu' di tutto il resto messo insieme, ma toglierne troppe
+        // esclude dei telefoni: il Galaxy J6 di prova ha Android 10 e una ROM
+        // a 32 bit, quindi con il solo arm64 l'app si installa e poi non
+        // riesce a caricare WebRTC. Restano le due che contano; x86 e x86_64
+        // servono solo agli emulatori.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    signingConfigs {
+        if (signingReady) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePassword
+                keyAlias = keystoreAlias
+                keyPassword = keySecret
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            if (signingReady) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.lifecycle("chiave di firma assente: l'APK di release non sara' firmato")
+            }
+            // R8 acceso: senza, l'APK porta dentro tutte le icone di Material
+            // — quasi cinquanta megabyte su sessantasei, per sette icone usate.
+            // Le regole in proguard-rules.pro tengono WebRTC, che dal lato
+            // nativo chiama il codice Java per nome e sembrerebbe morto.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
