@@ -96,7 +96,14 @@ variable. `.gitignore` covers the usual filenames, but check before staging.
 
 ## Status
 
-Phases 0 to 5 are done and verified on real devices: scaffolding, Hub, app
-skeleton, noise detection with alerts, push notifications, and WebRTC streaming
-with video and talk-back. Phase 6 is continuous listening, phase 7 power and
-polish, phase 8 the multi-viewer mesh.
+All nine phases are implemented, and v0.1.0 is released: scaffolding, Hub, app
+skeleton, noise detection with alerts, push notifications, WebRTC streaming with
+video and talk-back, continuous listening, streaming away from home over the
+tailnet, role changes without re-pairing, and up to three Parent Nodes on one
+Nursery Node.
+
+What remains is written down rather than remembered: the [README](README.md) has
+the declared limitations, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) the
+reasoning. The one place where that document is still ahead of the code is
+"Two audio captures": there are two `AudioRecord` instances while streaming, and
+one is the design.
