@@ -17,6 +17,13 @@ USER node
 
 EXPOSE 8080
 
+# Il tag della release, passato al build. Sta qui in fondo e non accanto alle
+# altre ENV perche' cambia a ogni release: sopra invaliderebbe la cache di
+# `npm ci` ogni volta. Senza build-arg resta "dev", che e' la verita' per
+# un'immagine costruita a mano.
+ARG CRYLOG_VERSION=dev
+ENV CRYLOG_VERSION=$CRYLOG_VERSION
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+process.env.CRYLOG_PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
