@@ -221,9 +221,12 @@ docker compose up -d --build
 
 The provided `docker-compose.yml` follows the sidecar pattern: a `tailscale/tailscale` container
 owns the network namespace and `serve.json` exposes the Hub over HTTPS **on the tailnet only**.
-Nothing is published to the public internet. The paths in the compose file are the ones from the
-machine it was written for — change the volumes to yours. `/data` holds the device registry, the
-pairing codes and the event log, and none of it is reproducible: put it somewhere you back up.
+Nothing is published to the public internet. The volumes are relative to `hub/`, so a fresh clone
+comes up as it is; on a real server, move them onto a disk you back up. `/data` holds the device
+registry, the pairing codes and the event log, and none of it is reproducible.
+
+The sidecar needs a `tailscale.env` next to the compose file, holding `TS_AUTHKEY`. Both it and the
+node state it writes are in `.gitignore`: an auth key enrols a machine on your tailnet.
 
 By default the image comes from `ghcr.io/piero-93/crylog-hub:latest`, published by the release
 workflow. To build from source instead, drop `image:` and put back `build: .`.

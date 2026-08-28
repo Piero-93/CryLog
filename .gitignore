@@ -8,7 +8,11 @@ google-services.json
 *.iam.gserviceaccount.com.json
 hub/secrets/
 .env
+# TS_AUTHKEY: iscrive una macchina alla tailnet. Il compose lo cerca accanto a se'.
+tailscale.env
 !tailscale.env.template
+# Stato di Tailscale del sidecar: contiene le chiavi del nodo.
+tailscale-state/
 
 # --- Android / Gradle ---
 *.iml
