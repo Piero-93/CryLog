@@ -48,6 +48,13 @@ the Nursery Node holds **two** `AudioRecord` instances. It works — verified on
 is why `minSdk` is 29, where concurrent capture became officially supported. It is also fragile by
 construction, and depends on a device being willing to grant the second one.
 
+The fragility is real but has not bitten yet, and that is worth recording precisely, because the
+symptom it would produce is easy to blame it for. On a Redmi Note 13 running Android 14,
+`dumpsys audio` reports both clients — `src:MIC` for detection and `src:VOICE_COMMUNICATION` for
+WebRTC — as `not silenced` at the same time, and stopping detection while a Parent Node listens
+changes nothing about the stream. When a stream once arrived carrying only silence, this design was
+the first suspect and it was innocent; the cause was a sink that outlived its session.
+
 The intended design is a single capture with two consumers: the WebRTC SDK's
 `JavaAudioDeviceModule` owns the microphone and the `NoiseDetector` reads the same buffers through
 `SamplesReadyCallback`. It is not written yet. This section used to claim it was.
@@ -113,23 +120,50 @@ WebSocket alive with the screen off.
 The dangerous failure mode of a baby monitor is not a crash — it is a connection that is technically
 alive but carrying nothing, which is indistinguishable from a quiet room.
 
-Therefore the watchdog does not trust ICE state; it checks that audio packets are actually arriving.
-On failure the Parent Node attempts an ICE restart with backoff, and if it cannot recover within
-roughly thirty seconds it raises an audible alarm on a notification channel exempt from Do Not
-Disturb. Separately, the Hub watches Nursery Node heartbeats and notifies every Parent Node when one
-stops reporting.
+Therefore the watchdog does not trust ICE state; it checks that audio frames are actually arriving.
+It ticks every two seconds and reads one timestamp, `StreamLevel.lastFrameAtMs`, written by the sink
+attached to the remote audio track. Ten seconds without a frame and the session counts as mute;
+thirty and the Parent Node raises an audible alarm on a notification channel exempt from Do Not
+Disturb.
 
-### The Hub has no runtime dependencies
+Recovery is a full session teardown and reopen, not an ICE restart — `ListenService.reopenSession`
+calls `stop()` then `start()` — with backoff doubling from two seconds to thirty. Separately, the
+Hub watches Nursery Node heartbeats, every thirty seconds, and notifies every Parent Node when one
+goes ninety seconds without reporting.
 
-Node 24's standard library covers everything the Hub needs: `node:http`, `node:crypto` for pairing
-tokens and the FCM JWT, `node:sqlite` for storage. `node:sqlite` is a release candidate rather than
-fully stable, so all database access is confined to `hub/src/db.js`; if the API shifts, one file
-changes.
+**What this makes load-bearing, and it is not obvious**: that timestamp is only as trustworthy as
+the sink writing it. A sink left attached to a session that no longer exists keeps delivering 10 ms
+blocks of digital silence, which update the timestamp exactly like real audio — so a dead session
+can hold the watchdog open and keep the alarm quiet while nothing is arriving. That is not a
+hypothetical: it shipped, and it is why `WebRtcTransport` now keeps the sink in `remoteAudioSink`
+and detaches it both in `stop()` and before attaching a new one in `onTrack`.
+
+The invariant to preserve is therefore narrower than "call removeSink": **no sink may outlive the
+session that created it**, because the alarm this whole document is built around is disarmed by its
+silence.
+
+### The Hub has one runtime dependency
+
+Node 24's standard library covers nearly everything the Hub needs: `node:http`, `node:crypto` for
+pairing tokens and the FCM JWT, `node:sqlite` for storage. `node:sqlite` is a release candidate
+rather than fully stable, so all database access is confined to `hub/src/db.js`; if the API shifts,
+one file changes.
+
+The exception is **`ws`**, and it is deliberate: Node ships a WebSocket *client* in its standard
+library but no *server*, and the Hub needs to accept connections rather than open them. So the rule
+is an intention rather than a count — every dependency has to justify itself against the
+maintenance it costs — and `ws` is the one that does.
 
 ### Pairing
 
-The Hub issues a single-use token, displayed as a QR code. A device exchanges it for a permanent
-token, of which the Hub stores only a hash. Every WebSocket connection presents its token.
+The Hub issues a single-use code of eight characters, typed by hand — there is no QR code, and the
+app has no scanner. The alphabet has 32 symbols and leaves out `I`, `L`, `O` and `U`, so nothing in
+it can be misread as a digit or turn into a word; the app shows it split 4-4 for the same reason.
+A device exchanges the code for a permanent token, of which the Hub stores only a SHA-256 hash, and
+marks the code used. Every WebSocket connection presents its token.
+
+Codes are generated from the Hub's own page, and an already-paired device can issue one too — which
+is what makes it possible to add a phone without a terminal and without the admin token.
 
 Tailscale already restricts who can reach the Hub, but network position alone is not authentication:
 anything on the tailnet could otherwise register itself as a Parent Node and receive alerts.
@@ -141,7 +175,27 @@ live connection:
 
 - `core/` in the Android app is plain Kotlin — threshold logic, pairing state, Hub protocol types.
 - Hardware sits behind `NoiseDetector` and `StreamTransport`.
+- `parent/StreamLevel` is a plain object too, which is why the watchdog's input can be tested
+  without a device.
 - On the Hub, fan-out and pairing are pure functions over the registry; transport is injected.
 
 The regression that matters most here is a silent one in detection: nobody notices until the night
 it is needed.
+
+### The blind spot, stated plainly
+
+`WebRtcTransport` is not reachable from a JVM test, and the sink lifecycle lives inside it. It calls
+`android.util.Log`, the module sets no `testOptions { unitTests.isReturnDefaultValues = true }`,
+there is no Mockito or Robolectric, and `addSink`/`removeSink` are native calls on `org.webrtc`
+types inside a private inner class. There is no seam.
+
+So the tests around the sink bug cover what it *did* — silence updating the watchdog timestamp,
+a second sink hollowing out the chart — and not the detach that fixes it. Remove `removeSink` again
+and the suite stays green. Today that gap is covered by a manual check: with a session cycled a few
+times, the level chart must still draw every slot, one bar every 5.7 px at the width it renders at,
+rather than every second or third.
+
+Closing it properly means extracting the sink's lifecycle into a plain Kotlin class. That would also
+turn the invariant above — no sink outlives its session — from a convention held in two places into
+something the type system keeps. It has not been done, and this paragraph exists so the omission is
+a decision rather than an oversight.
