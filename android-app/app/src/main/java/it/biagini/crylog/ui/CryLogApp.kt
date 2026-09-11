@@ -90,7 +90,6 @@ import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
-import it.biagini.crylog.core.RmsNoiseDetector
 import it.biagini.crylog.parent.ContinuousListening
 import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.StreamLevel
@@ -752,7 +751,7 @@ private fun ListenCard(
 
                     // Serve a distinguere una cameretta silenziosa da uno stream
                     // che non porta nulla: due situazioni identiche all'orecchio.
-                    LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+                    LevelChart(history = history)
                     Text(
                         "Livello: %.0f dBFS".format(level),
                         style = MaterialTheme.typography.bodySmall,
@@ -842,7 +841,7 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
 
         val history by StreamLevel.history.collectAsStateWithLifecycle()
         // Distingue una cameretta tranquilla da uno stream che non porta nulla.
-        LevelChart(history = history, thresholdDb = RmsNoiseDetector.SILENCE_DB)
+        LevelChart(history = history)
 
         if (since != 0L) {
             // Ricalcolato ogni minuto: un tempo fermo a "0 min" per tutta la
