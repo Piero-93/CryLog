@@ -182,8 +182,12 @@ class NoiseMonitorService : Service() {
             val event = if (talkBackActive) null else detector.analyze(samples, length, System.currentTimeMillis())
             NoiseMonitor.setLevel(detector.currentLevelDb)
             // Un livello ogni due secondi: abbastanza per capire dai log perche
-            // un rumore non e stato rilevato, senza inondare logcat.
-            if (blocks++ % 20 == 0) {
+            // un rumore non e stato rilevato. Spento salvo richiesta esplicita:
+            // e l'unica riga che il Nursery scrive in continuazione, e da sola
+            // riempie il buffer di logcat, che cosi' non tiene piu' la storia
+            // delle sessioni. Per riaccenderlo:
+            //     adb shell setprop log.tag.CryLogMonitor DEBUG
+            if (blocks++ % 20 == 0 && Log.isLoggable(TAG, Log.DEBUG)) {
                 Log.d(TAG, "livello %.1f dBFS (soglia %.1f)".format(detector.currentLevelDb, store.noiseThresholdDb))
             }
             if (event != null) {
