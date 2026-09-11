@@ -438,7 +438,13 @@ class WebRtcTransport(
         override fun onIceCandidate(candidate: IceCandidate) {
             // Quali interfacce WebRTC offre davvero: distingue una tailnet che
             // non viene enumerata da una che c e ma non instrada.
-            Log.i(TAG, "candidato: ${candidate.sdp}")
+            //
+            // Spento salvo richiesta esplicita: e l unica riga che stampa
+            // indirizzi — quello della LAN e i due della tailnet — e parte
+            // quattro o otto volte per sessione. Serve mentre si indaga il
+            // routing, non mentre si sorveglia un bambino. Per accenderlo:
+            //     adb shell setprop log.tag.CryLogStream DEBUG
+            if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "candidato: ${candidate.sdp}")
             send(
                 listener.id,
                 SignalPayload.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex),
