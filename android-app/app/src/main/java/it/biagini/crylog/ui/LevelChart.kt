@@ -51,11 +51,16 @@ import androidx.compose.material3.LocalContentColor
  * Un numero che cambia dieci volte al secondo non dice se il rumore stia
  * sfiorando la soglia o le stia lontano: il grafico serve a regolare la
  * sensibilità guardando, invece che per tentativi.
+ *
+ * [thresholdDb] è nullo sul Parent Node, che una soglia non ce l'ha: lì il
+ * grafico dice solo quanto sta arrivando. Passargli il pavimento della scala
+ * per "disattivarla" tingeva di rosso ogni barra e incollava la linea
+ * tratteggiata al bordo inferiore.
  */
 @Composable
 fun LevelChart(
     history: FloatArray,
-    thresholdDb: Double,
+    thresholdDb: Double? = null,
     modifier: Modifier = Modifier,
 ) {
     // Dentro l'eroe il grafico non puo' avere un fondo suo: userebbe un grigio
@@ -88,20 +93,22 @@ fun LevelChart(
                 val top = toY(db)
                 if (top >= size.height) return@forEachIndexed
                 drawRect(
-                    color = if (db >= thresholdDb) overColor else barColor,
+                    color = if (thresholdDb != null && db >= thresholdDb) overColor else barColor,
                     topLeft = Offset(index * slot, top),
                     size = androidx.compose.ui.geometry.Size(barWidth, size.height - top),
                 )
             }
 
-            val thresholdY = toY(thresholdDb.toFloat())
-            drawLine(
-                color = thresholdColor,
-                start = Offset(0f, thresholdY),
-                end = Offset(size.width, thresholdY),
-                strokeWidth = 2f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)),
-            )
+            if (thresholdDb != null) {
+                val thresholdY = toY(thresholdDb.toFloat())
+                drawLine(
+                    color = thresholdColor,
+                    start = Offset(0f, thresholdY),
+                    end = Offset(size.width, thresholdY),
+                    strokeWidth = 2f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)),
+                )
+            }
         }
 
         Row(
