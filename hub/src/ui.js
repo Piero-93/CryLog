@@ -63,12 +63,32 @@ export const PAIRING_PAGE = `<!doctype html>
   .who span { color: var(--muted); font-size: .85rem; }
   .remove { width: auto; margin: 0; padding: 8px 12px; font-size: .85rem; font-weight: 500;
             background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .rowhead { display: flex; align-items: center; gap: 12px; margin: 28px 0 12px; }
+  .rowhead h2 { margin: 0; flex: 1; }
+  .events { list-style: none; margin: 0; padding: 0; }
+  .events li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .events li:last-child { border-bottom: 0; }
+  .events li.empty { color: var(--muted); justify-content: center; }
+  .events .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .events .peak { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .events .when { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; flex: none; }
+  .events li.fresh .what { font-weight: 600; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Aggiungi un dispositivo</h1>
-  <p class="sub">Genera un codice da inserire nell'app CryLog.</p>
+  <h1>CryLog</h1>
+  <p class="sub">Cosa succede nella cameretta, dal computer.</p>
+
+  <div class="rowhead">
+    <h2>Attivit&agrave;</h2>
+    <button class="remove" id="notify">Attiva le notifiche</button>
+  </div>
+  <div class="card">
+    <ul class="events" id="events"><li class="empty">Caricamento...</li></ul>
+  </div>
+
+  <h2>Aggiungi un dispositivo</h2>
 
   <div class="card" id="auth">
     <label for="token">Admin token</label>
@@ -206,6 +226,127 @@ export const PAIRING_PAGE = `<!doctype html>
 
   loadDevices()
   setInterval(loadDevices, 5000)
+
+  // --- Attivita' nella cameretta -------------------------------------------
+  //
+  // Legge /events con l'admin token, che la pagina ha gia': niente pairing del
+  // browser, niente Web Push. Finche' la scheda e' aperta basta l'API
+  // Notification, e il Web Push — con la cifratura del payload che si porta
+  // dietro — non serve affatto.
+  const NOTIFY = 'crylog-notify'
+  const seen = new Set()
+  let seeded = false
+
+  const canNotify = typeof Notification !== 'undefined'
+  let notifyOn = canNotify && Notification.permission === 'granted' && localStorage.getItem(NOTIFY) !== '0'
+
+  const clock = (at) =>
+    new Date(at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+
+  const refreshNotifyButton = () => {
+    const button = $('notify')
+    if (!canNotify) {
+      // Fuori da un contesto sicuro l'API non esiste: dirlo, invece di offrire
+      // un pulsante che non farebbe niente.
+      button.textContent = 'Notifiche non disponibili'
+      button.disabled = true
+      return
+    }
+    if (Notification.permission === 'denied') {
+      button.textContent = 'Notifiche bloccate dal browser'
+      button.disabled = true
+      return
+    }
+    button.textContent = notifyOn ? 'Notifiche attive' : 'Attiva le notifiche'
+  }
+
+  const notify = (event) => {
+    if (!notifyOn || Notification.permission !== 'granted') return
+    const peak = event.peakDb == null ? '' : ' (' + Math.round(event.peakDb) + ' dB)'
+    new Notification('Rumore da ' + (event.nurseryName || 'cameretta') + peak, {
+      body: 'alle ' + clock(event.startedAt),
+      // L'id dell'evento come tag: se la stessa notifica arrivasse due volte,
+      // il browser la sostituisce invece di impilarla.
+      tag: event.id,
+    })
+  }
+
+  const loadEvents = async () => {
+    const token = localStorage.getItem(STORED) || $('token').value.trim()
+    const list = $('events')
+    if (!token) {
+      list.innerHTML = '<li class="empty">Serve l'admin token</li>'
+      return
+    }
+
+    try {
+      const res = await fetch('/events?limit=30', { headers: { authorization: 'Bearer ' + token } })
+      if (!res.ok) {
+        list.innerHTML = '<li class="empty">Non autorizzato</li>'
+        return
+      }
+
+      const { events } = await res.json()
+      if (events.length === 0) {
+        list.innerHTML = '<li class="empty">Ancora nessun rumore</li>'
+        seeded = true
+        return
+      }
+
+      // Dal piu' vecchio al piu' nuovo, cosi' le notifiche arrivano in ordine.
+      const fresh = []
+      for (let i = events.length - 1; i >= 0; i--) {
+        const event = events[i]
+        if (seen.has(event.id)) continue
+        seen.add(event.id)
+        // Al primo caricamento si prende nota e basta: altrimenti aprire la
+        // pagina sparerebbe trenta notifiche di rumori gia' passati.
+        if (seeded) fresh.push(event)
+      }
+      fresh.forEach(notify)
+
+      const isFresh = new Set(fresh.map((e) => e.id))
+      list.replaceChildren(...events.map((event) => {
+        const li = document.createElement('li')
+        if (isFresh.has(event.id)) li.className = 'fresh'
+
+        const what = document.createElement('span')
+        what.className = 'what'
+        what.textContent = event.nurseryName || 'cameretta'
+
+        const peak = document.createElement('span')
+        peak.className = 'peak'
+        peak.textContent = event.peakDb == null ? '' : Math.round(event.peakDb) + ' dB'
+
+        const when = document.createElement('span')
+        when.className = 'when'
+        when.textContent = clock(event.startedAt)
+
+        li.append(what, peak, when)
+        return li
+      }))
+      seeded = true
+    } catch {
+      list.innerHTML = '<li class="empty">Hub non raggiungibile</li>'
+    }
+  }
+
+  $('notify').addEventListener('click', async () => {
+    if (!canNotify) return
+    if (Notification.permission !== 'granted') {
+      const outcome = await Notification.requestPermission()
+      if (outcome !== 'granted') return refreshNotifyButton()
+      notifyOn = true
+    } else {
+      notifyOn = !notifyOn
+    }
+    localStorage.setItem(NOTIFY, notifyOn ? '1' : '0')
+    refreshNotifyButton()
+  })
+
+  refreshNotifyButton()
+  loadEvents()
+  setInterval(loadEvents, 5000)
 
   $('generate').addEventListener('click', async () => {
     const token = $('token').value.trim() || localStorage.getItem(STORED)
