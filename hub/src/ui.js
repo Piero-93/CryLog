@@ -73,6 +73,12 @@ export const PAIRING_PAGE = `<!doctype html>
   .events .peak { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
   .events .when { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; flex: none; }
   .events li.fresh .what { font-weight: 600; }
+  .state { color: var(--muted); font-size: .9rem; }
+  .state.live { color: #2ea043; font-weight: 600; }
+  .state.bad { color: #d14343; }
+  select { width: 100%; padding: 12px; font-size: 1rem; border-radius: 10px; margin-bottom: 4px;
+           border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+  audio { display: none; }
 </style>
 </head>
 <body>
@@ -86,6 +92,17 @@ export const PAIRING_PAGE = `<!doctype html>
   </div>
   <div class="card">
     <ul class="events" id="events"><li class="empty">Caricamento...</li></ul>
+  </div>
+
+  <div class="rowhead">
+    <h2>Ascolto</h2>
+    <span class="state" id="listenState"></span>
+  </div>
+  <div class="card">
+    <select id="nursery"></select>
+    <button id="listen">Ascolta</button>
+    <div class="error" id="listenError" hidden></div>
+    <audio id="audio" autoplay playsinline></audio>
   </div>
 
   <h2>Aggiungi un dispositivo</h2>
@@ -195,6 +212,8 @@ export const PAIRING_PAGE = `<!doctype html>
         return
       }
 
+      fillNurseries(devices)
+
       list.replaceChildren(...devices.map((device) => {
         const li = document.createElement('li')
 
@@ -275,7 +294,7 @@ export const PAIRING_PAGE = `<!doctype html>
     const token = localStorage.getItem(STORED) || $('token').value.trim()
     const list = $('events')
     if (!token) {
-      list.innerHTML = '<li class="empty">Serve l'admin token</li>'
+      list.innerHTML = '<li class="empty">Serve il token di amministrazione</li>'
       return
     }
 
@@ -330,6 +349,224 @@ export const PAIRING_PAGE = `<!doctype html>
       list.innerHTML = '<li class="empty">Hub non raggiungibile</li>'
     }
   }
+
+  // --- Ascolto dal vivo ----------------------------------------------------
+  //
+  // Il browser diventa un Parent Node a tutti gli effetti: si accoppia una
+  // volta, apre il WebSocket con il proprio token e parla lo stesso signaling
+  // dell'app. L'Hub non guarda dentro il payload, quindi non ha dovuto
+  // imparare niente di nuovo, e il Nursery Node non e' stato toccato: risponde
+  // gia' a chiunque abbia ruolo parent.
+  const DEVICE = 'crylog-device-token'
+  let ws = null
+  let pc = null
+  let nurseryId = null
+  let listening = false
+
+  const setState = (text, kind) => {
+    const el = $('listenState')
+    el.textContent = text
+    el.className = 'state' + (kind ? ' ' + kind : '')
+  }
+
+  const listenError = (text) => {
+    $('listenError').textContent = text
+    $('listenError').hidden = false
+  }
+
+  const fillNurseries = (devices) => {
+    const select = $('nursery')
+    const nurseries = devices.filter((d) => d.role === 'nursery')
+    const chosen = select.value
+    select.replaceChildren(...nurseries.map((d) => {
+      const option = document.createElement('option')
+      option.value = d.id
+      option.textContent = d.name + (d.online ? '' : ' (non collegato)')
+      return option
+    }))
+    if (nurseries.some((d) => d.id === chosen)) select.value = chosen
+    // Con un Nursery Node solo, scegliere non ha senso: il menu sparisce.
+    select.hidden = nurseries.length < 2
+    if (!listening) $('listen').disabled = nurseries.length === 0
+    if (nurseries.length === 0 && !listening) setState('nessun Nursery Node accoppiato')
+  }
+
+  // Un nome diverso per ogni profilo browser: due profili sono due dispositivi,
+  // e con lo stesso nome il registro dell'Hub diventa illeggibile.
+  const browserName = () => ('Browser ' + Math.random().toString(16).slice(2, 6)).slice(0, 64)
+
+  // Il browser si accoppia da solo: genera un codice con l'admin token che la
+  // pagina gia' ha, e lo riscatta per se'. Una volta sola, poi il token resta.
+  const ensureDevice = async () => {
+    const existing = localStorage.getItem(DEVICE)
+    if (existing) return existing
+
+    const admin = localStorage.getItem(STORED) || $('token').value.trim()
+    if (!admin) throw new Error("Serve l'admin token.")
+
+    const codeRes = await fetch('/pairing-codes', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + admin },
+    })
+    if (!codeRes.ok) throw new Error('Codice di pairing non generato.')
+    const { code } = await codeRes.json()
+
+    const pairRes = await fetch('/pair', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code, role: 'parent', name: browserName() }),
+    })
+    if (!pairRes.ok) throw new Error('Accoppiamento del browser fallito.')
+
+    const { token } = await pairRes.json()
+    localStorage.setItem(DEVICE, token)
+    return token
+  }
+
+  const sendSignal = (payload) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !nurseryId) return
+    ws.send(JSON.stringify({ type: 'signal', to: nurseryId, payload }))
+  }
+
+  const play = async () => {
+    try {
+      await $('audio').play()
+      setState('in ascolto', 'live')
+    } catch {
+      // L'autoplay puo' rifiutare se il gesto dell'utente e' ormai scaduto:
+      // dirlo, invece di restare muti senza spiegazioni.
+      setState('audio bloccato dal browser: tocca di nuovo Ascolta', 'bad')
+    }
+  }
+
+  const openPeer = () => {
+    // Nessun server ICE: sulla tailnet i due capi si vedono direttamente, e un
+    // TURN non c'e' comunque.
+    const conn = new RTCPeerConnection({ iceServers: [] })
+
+    conn.ontrack = (event) => {
+      $('audio').srcObject = event.streams[0]
+      play()
+    }
+
+    conn.onicecandidate = (event) => {
+      if (!event.candidate) return
+      sendSignal({
+        kind: 'ice',
+        candidate: event.candidate.candidate,
+        sdpMid: event.candidate.sdpMid,
+        sdpMLineIndex: event.candidate.sdpMLineIndex,
+      })
+    }
+
+    conn.onconnectionstatechange = () => {
+      if (conn.connectionState === 'failed') stopListening('connessione fallita')
+      if (conn.connectionState === 'disconnected') setState('connessione persa', 'bad')
+    }
+
+    return conn
+  }
+
+  const onOffer = async (payload) => {
+    pc = openPeer()
+    await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp })
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    sendSignal({ kind: 'answer', sdp: answer.sdp })
+  }
+
+  const onHubMessage = async (message) => {
+    if (message.type === 'welcome') {
+      setState('richiesta inviata')
+      sendSignal({ kind: 'request', video: false, talkBack: false })
+      return
+    }
+
+    if (message.type === 'signal-undelivered') {
+      stopListening(message.reason === 'offline'
+        ? 'il Nursery Node non e collegato'
+        : 'destinatario sconosciuto')
+      return
+    }
+
+    if (message.type !== 'signal' || message.from !== nurseryId) return
+
+    const payload = message.payload || {}
+
+    if (payload.kind === 'offer') return onOffer(payload)
+
+    if (payload.kind === 'ice') {
+      if (!pc) return
+      try {
+        await pc.addIceCandidate({
+          candidate: payload.candidate,
+          sdpMid: payload.sdpMid,
+          sdpMLineIndex: payload.sdpMLineIndex,
+        })
+      } catch {
+        // Un candidato rifiutato non affonda la sessione: ne arrivano altri.
+      }
+      return
+    }
+
+    if (payload.kind === 'busy') stopListening('il Nursery Node ha gia tre ascoltatori')
+    if (payload.kind === 'stop') stopListening('sessione chiusa dal Nursery Node')
+  }
+
+  function stopListening(why) {
+    if (listening) sendSignal({ kind: 'stop' })
+    listening = false
+    if (pc) { pc.close(); pc = null }
+    if (ws) { ws.onclose = null; ws.close(); ws = null }
+    $('audio').srcObject = null
+    $('listen').textContent = 'Ascolta'
+    $('listen').disabled = false
+    setState(why || '', why ? 'bad' : '')
+  }
+
+  const startListening = async () => {
+    $('listenError').hidden = true
+    nurseryId = $('nursery').value
+    if (!nurseryId) return listenError('Nessun Nursery Node accoppiato.')
+
+    $('listen').disabled = true
+    setState('accoppiamento...')
+
+    let token
+    try {
+      token = await ensureDevice()
+    } catch (err) {
+      $('listen').disabled = false
+      setState('')
+      return listenError(err.message)
+    }
+
+    listening = true
+    $('listen').textContent = 'Interrompi'
+    $('listen').disabled = false
+    setState('connessione all Hub...')
+
+    const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'
+    ws = new WebSocket(scheme + location.host + '/ws?token=' + encodeURIComponent(token))
+    ws.onmessage = (event) => {
+      try {
+        onHubMessage(JSON.parse(event.data))
+      } catch {
+        // Un messaggio illeggibile non deve buttare giu' la sessione.
+      }
+    }
+    ws.onclose = () => { if (listening) stopListening('collegamento all Hub caduto') }
+    ws.onerror = () => listenError('Hub non raggiungibile.')
+  }
+
+  $('listen').addEventListener('click', () => {
+    if (listening) return stopListening('')
+    startListening()
+  })
+
+  // Una scheda chiusa senza salutare terrebbe occupato uno dei tre posti sul
+  // Nursery Node, e il telefono che conta si vedrebbe rifiutare la sessione.
+  addEventListener('pagehide', () => { if (listening) stopListening('') })
 
   $('notify').addEventListener('click', async () => {
     if (!canNotify) return
