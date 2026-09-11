@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.webrtc.AudioTrack
+import org.webrtc.AudioTrackSink
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -98,6 +99,17 @@ class WebRtcTransport(
     // --- Media del Parent Node, che di sessioni ne ha sempre una ---
     private var talkBackAudio: AudioTrack? = null
     private var remoteAudio: AudioTrack? = null
+
+    /**
+     * Il sink attaccato a [remoteAudio], tenuto per poterlo staccare.
+     *
+     * Senza questo riferimento `removeSink` non e' chiamabile, e il sink di una
+     * sessione chiusa continua a consegnare blocchi di silenzio dentro
+     * [StreamLevel] insieme a quello vivo: il grafico si svuota e, molto
+     * peggio, `lastFrameAtMs` resta fresco, quindi il watchdog crede che
+     * l'audio scorra quando non scorre piu'.
+     */
+    private var remoteAudioSink: AudioTrackSink? = null
 
     /** Ricordato dalla richiesta: serve quando arriva l offerta, non prima. */
     private var wantTalkBack = false
@@ -336,6 +348,7 @@ class WebRtcTransport(
 
         wantTalkBack = false
         talkBackAudio = null
+        detachRemoteAudioSink()
         remoteAudio = null
         roomAudio = null
         onRemoteVideo(null)
@@ -361,6 +374,13 @@ class WebRtcTransport(
         refreshTalkBack()
         releaseCameraIfUnused()
         refreshListeners()
+    }
+
+    /** Stacca il sink dalla traccia remota, se ce n'e' uno attaccato. */
+    private fun detachRemoteAudioSink() {
+        val sink = remoteAudioSink ?: return
+        remoteAudio?.removeSink(sink)
+        remoteAudioSink = null
     }
 
     /** Il rilevamento tace se **almeno uno** sta parlando, non solo l'ultimo. */
@@ -480,7 +500,7 @@ class WebRtcTransport(
 
             // I campioni servono solo a misurare quanto sta arrivando: la
             // riproduzione la fa WebRTC per conto suo.
-            track.addSink { audioData, bitsPerSample, _, channels, frames, _ ->
+            val sink = AudioTrackSink { audioData, bitsPerSample, _, channels, frames, _ ->
                 if (bitsPerSample == 16) {
                     val samples = ShortArray(frames * channels)
                     audioData.order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -489,6 +509,13 @@ class WebRtcTransport(
                     StreamLevel.push(samples, samples.size)
                 }
             }
+
+            // Una traccia nuova senza che la vecchia sia passata da stop():
+            // succede quando il watchdog riapre la sessione, ed e' il modo in
+            // cui i sink si accumulavano.
+            detachRemoteAudioSink()
+            track.addSink(sink)
+            remoteAudioSink = sink
 
             remoteAudio = track
             onRemoteAudio(track)
