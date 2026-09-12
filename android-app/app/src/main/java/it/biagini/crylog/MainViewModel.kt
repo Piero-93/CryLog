@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import it.biagini.crylog.parent.AlertState
 
@@ -124,6 +125,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * avrebbe taciuto senza dire perche'.
      */
     private var transport: StreamTransport? = null
+
+    /** Distingue le richieste di ascolto, per non far scadere quella sbagliata. */
+    private var listenAttempt = 0
     private var transportJob: Job? = null
 
     private fun rebuildTransport() {
@@ -526,9 +530,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val session = _uiState.value as? UiState.Session ?: return
         val nurseryId = session.nurseryId ?: return
 
+        // Ogni richiesta ha il suo numero: senza, il timeout di una sessione
+        // abbandonata chiuderebbe quella aperta subito dopo.
+        val attempt = ++listenAttempt
+
         viewModelScope.launch {
-            transport?.start(StreamRequest(peerId = nurseryId, video = video, talkBack = talkBack))
-                ?.onFailure { Log.e(TAG, "avvio stream fallito: ${it.message}") }
+            val started = transport?.start(
+                StreamRequest(peerId = nurseryId, video = video, talkBack = talkBack),
+            )
+            started?.onFailure {
+                Log.e(TAG, "avvio stream fallito: ${it.message}")
+                // Senza questo lo stato restava su Connecting e la schermata
+                // girava all'infinito su una sessione che non era mai partita.
+                transport?.fail("Non è stato possibile aprire la sessione")
+                return@launch
+            }
+
+            // Il Nursery Node puo' essere collegato all'Hub e non rispondere
+            // comunque: la richiesta arriva e l'offerta non torna. Senza un
+            // limite lo spinner resta li' per sempre, che e' il silenzio
+            // ambiguo che questo progetto esiste per evitare.
+            delay(OFFER_TIMEOUT_MS)
+            if (attempt == listenAttempt && transport?.state?.value is TransportState.Connecting) {
+                transport?.fail("Il Nursery Node non ha risposto")
+            }
         }
     }
 
@@ -711,6 +736,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val CODE_ERRORS = setOf("unknown_code", "already_used", "expired", "invalid_code_format")
 
         const val MAX_EVENTS = 50
+
+        /**
+         * Quanto si aspetta l'offerta prima di dire che non arrivera'.
+         *
+         * Lo stesso valore che `ListenService` usa per l'ascolto continuo: e'
+         * il tempo oltre il quale una sessione che non si e' aperta non si
+         * aprira' piu'.
+         */
+        const val OFFER_TIMEOUT_MS = 20_000L
         const val TAG = "CryLogViewModel"
     }
 }
