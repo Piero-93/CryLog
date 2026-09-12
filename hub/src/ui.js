@@ -259,12 +259,17 @@ export const PAIRING_PAGE = `<!doctype html>
   }
 
   const removeDevice = async (device) => {
-    if (!confirm('Rimuovere "' + device.name + '"? Dovra rifare il pairing per tornare.')) return
+    if (!confirm('Rimuovere "' + device.name + '"? Dovrà rifare il pairing per tornare.')) return
     const token = localStorage.getItem(STORED)
-    await fetch('/devices/' + device.id, {
+    const res = await fetch('/devices/' + device.id, {
       method: 'DELETE',
       headers: { authorization: 'Bearer ' + token },
-    })
+    }).catch(() => null)
+    // Senza questo controllo la riga spariva e poi riappariva al giro dopo,
+    // senza che nessuno dicesse che la rimozione non era riuscita.
+    if (!res || !res.ok) {
+      alert('Non è stato possibile rimuovere "' + device.name + '".')
+    }
     loadDevices()
   }
 
@@ -329,6 +334,12 @@ export const PAIRING_PAGE = `<!doctype html>
     } catch {
       setPill('Hub non raggiungibile', 'off')
       list.innerHTML = '<li class="empty">Hub non raggiungibile</li>'
+      // Senza la lista non si sa se il Nursery Node sia collegato: il pulsante
+      // resterebbe com'era, promettendo qualcosa che non si puo' sapere.
+      if (!listening) {
+        $('listen').disabled = true
+        setState('Hub non raggiungibile')
+      }
     }
   }
 
@@ -485,6 +496,14 @@ export const PAIRING_PAGE = `<!doctype html>
     $('listenError').hidden = false
   }
 
+  // Messaggi che descrivono l'attesa, non un esito: solo questi si possono
+  // sovrascrivere quando la situazione si sblocca.
+  const IDLE_STATES = [
+    'nessun Nursery Node accoppiato',
+    'Nursery Node non collegato',
+    'Hub non raggiungibile',
+  ]
+
   const fillNurseries = (devices) => {
     const select = $('nursery')
     const nurseries = devices.filter((d) => d.role === 'nursery')
@@ -498,8 +517,22 @@ export const PAIRING_PAGE = `<!doctype html>
     if (nurseries.some((d) => d.id === chosen)) select.value = chosen
     // Con un Nursery Node solo, scegliere non ha senso: il menu sparisce.
     select.hidden = nurseries.length < 2
-    if (!listening) $('listen').disabled = nurseries.length === 0
-    if (nurseries.length === 0 && !listening) setState('nessun Nursery Node accoppiato')
+
+    if (listening) return
+
+    // Un pulsante che si puo' premere e poi risponde "non e collegato" fa fare
+    // un giro a vuoto per dire una cosa che si sapeva gia'. Meglio spento, con
+    // scritto perche'. Conta il Nursery scelto, non che ce ne sia uno acceso
+    // qualsiasi: si ascolta quello, non un altro.
+    const target = nurseries.find((d) => d.id === select.value)
+    const ready = Boolean(target && target.online)
+    $('listen').disabled = !ready
+
+    if (nurseries.length === 0) return setState('nessun Nursery Node accoppiato')
+    if (!ready) return setState('Nursery Node non collegato')
+    // Pronto: si cancella solo un messaggio messo da qui, mai l'esito
+    // dell'ultima sessione, che altrimenti sparirebbe entro cinque secondi.
+    if (IDLE_STATES.includes($('listenState').textContent)) setState('')
   }
 
   // Due profili browser sono due dispositivi nel registro dell'Hub: senza un
@@ -548,7 +581,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (event.code === 1000) return 'sessione chiusa'
     if (event.code === 1001) return 'Hub in riavvio'
     if (event.code === 1006) return 'collegamento interrotto senza risposta'
-    if (event.code === 1011) return 'errore interno dell Hub'
+    if (event.code === 1011) return "errore interno dell'Hub"
     const detail = event.reason ? ': ' + event.reason : ''
     return 'collegamento chiuso (codice ' + event.code + ')' + detail
   }
@@ -691,7 +724,7 @@ export const PAIRING_PAGE = `<!doctype html>
 
     if (message.type === 'signal-undelivered') {
       stopListening(message.reason === 'offline'
-        ? 'il Nursery Node non e collegato'
+        ? 'il Nursery Node non è collegato'
         : 'destinatario sconosciuto')
       return
     }
@@ -716,7 +749,7 @@ export const PAIRING_PAGE = `<!doctype html>
       return
     }
 
-    if (payload.kind === 'busy') stopListening('il Nursery Node ha gia tre ascoltatori')
+    if (payload.kind === 'busy') stopListening('il Nursery Node ha già il massimo di ascoltatori')
     if (payload.kind === 'stop') stopListening('sessione chiusa dal Nursery Node')
   }
 
@@ -727,6 +760,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (pc) { pc.close(); pc = null }
     if (ws) { ws.onclose = null; ws.close(); ws = null }
     $('audio').srcObject = null
+    $('nursery').disabled = false
     $('listen').textContent = 'Ascolta'
     $('listen').classList.remove('ghost')
     $('listen').disabled = false
@@ -739,7 +773,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (!nurseryId) return listenError('Nessun Nursery Node accoppiato.')
 
     $('listen').disabled = true
-    setState('accoppiamento...')
+    setState('accoppiamento…')
 
     let token
     try {
@@ -752,10 +786,13 @@ export const PAIRING_PAGE = `<!doctype html>
 
     listening = true
     greeted = false
+    // La sessione e' legata al Nursery scelto quando e' partita: lasciare il
+    // menu attivo lo farebbe sembrare cambiabile a caldo, e non lo e'.
+    $('nursery').disabled = true
     $('listen').textContent = 'Interrompi'
     $('listen').classList.add('ghost')
     $('listen').disabled = false
-    setState('connessione all Hub...')
+    setState("connessione all'Hub…")
 
     const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'
     ws = new WebSocket(scheme + location.host + '/ws?token=' + encodeURIComponent(token))
@@ -774,13 +811,17 @@ export const PAIRING_PAGE = `<!doctype html>
         // ripetere per sempre lo stesso errore.
         localStorage.removeItem(DEVICE)
         showPairBox()
-        stopListening('questo browser non e piu accoppiato: premi di nuovo Ascolta')
+        stopListening('questo browser non è più accoppiato: premi di nuovo Ascolta')
         return
       }
       stopListening(closeReason(event))
     }
     ws.onerror = () => listenError('Hub non raggiungibile.')
   }
+
+  // Scegliendo un altro Nursery il pulsante deve rivalutarsi subito, senza
+  // aspettare il giro di lettura dei dispositivi.
+  $('nursery').addEventListener('change', () => loadDevices())
 
   $('listen').addEventListener('click', () => {
     if (listening) return stopListening('')

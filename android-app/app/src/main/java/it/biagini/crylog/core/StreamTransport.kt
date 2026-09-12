@@ -60,6 +60,16 @@ interface StreamTransport {
     suspend fun stop()
 
     /**
+     * Chiude la sessione dichiarando perche', invece che in silenzio.
+     *
+     * Esiste per gli esiti che il trasporto non puo' conoscere da solo: l'Hub
+     * che risponde "destinatario non raggiungibile" arriva al livello sopra, e
+     * senza questo l'unico modo di reagire era fermarsi, lasciando l'utente
+     * davanti a un pulsante che sembrava non aver fatto niente.
+     */
+    suspend fun fail(reason: String)
+
+    /**
      * Consegna un messaggio di signaling arrivato dall'Hub.
      *
      * Il trasporto non conosce l'Hub né la rete: riceve buste e ne produce
