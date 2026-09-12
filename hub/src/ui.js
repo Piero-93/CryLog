@@ -101,6 +101,7 @@ export const PAIRING_PAGE = `<!doctype html>
   .state.live { color: var(--good-fg); }
   .state.bad { color: var(--danger); }
   .named { margin-bottom: var(--s2); }
+  .hint { color: var(--muted); font-size: .78rem; margin: 6px 2px var(--s2); }
 
   .code { font: 700 2rem/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
           letter-spacing: .14em; text-align: center; margin: var(--s2) 0 4px; }
@@ -161,6 +162,7 @@ export const PAIRING_PAGE = `<!doctype html>
       </div>
 
       <select id="nursery"></select>
+      <p class="hint" id="nurseryHint" hidden>Pi&ugrave; camerette: funzione sperimentale.</p>
       <button id="listen">Ascolta</button>
       <div class="error" id="listenError" hidden></div>
       <audio id="audio" autoplay playsinline></audio>
@@ -522,6 +524,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (select.value) localStorage.setItem(NURSERY, select.value)
     // Con un Nursery Node solo, scegliere non ha senso: il menu sparisce.
     select.hidden = nurseries.length < 2
+    $('nurseryHint').hidden = select.hidden
 
     if (listening) return
 
@@ -765,7 +768,6 @@ export const PAIRING_PAGE = `<!doctype html>
     if (pc) { pc.close(); pc = null }
     if (ws) { ws.onclose = null; ws.close(); ws = null }
     $('audio').srcObject = null
-    $('nursery').disabled = false
     $('listen').textContent = 'Ascolta'
     $('listen').classList.remove('ghost')
     $('listen').disabled = false
@@ -791,9 +793,6 @@ export const PAIRING_PAGE = `<!doctype html>
 
     listening = true
     greeted = false
-    // La sessione e' legata al Nursery scelto quando e' partita: lasciare il
-    // menu attivo lo farebbe sembrare cambiabile a caldo, e non lo e'.
-    $('nursery').disabled = true
     $('listen').textContent = 'Interrompi'
     $('listen').classList.add('ghost')
     $('listen').disabled = false
@@ -828,6 +827,16 @@ export const PAIRING_PAGE = `<!doctype html>
   // aspettare il giro di lettura dei dispositivi. E la scelta si ricorda.
   $('nursery').addEventListener('change', () => {
     localStorage.setItem(NURSERY, $('nursery').value)
+
+    // Cambiare stanza mentre si ascolta chiude la sessione e ne apre una
+    // sull'altra, come fa l'app. Non e' il cambio silenzioso che si e'
+    // lavorato per togliere: qui l'ha chiesto chi guarda, e costringerlo a
+    // Interrompi -> scegli -> Ascolta sarebbe tre gesti per dire una cosa.
+    if (listening) {
+      stopListening('')
+      startListening()
+      return
+    }
     loadDevices()
   })
 

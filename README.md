@@ -474,6 +474,9 @@ Beyond the plan:
 - **The app's interface is in Italian only.** The notification text lives in the default
   `strings.xml` and the screens' text is hardcoded in the composables, so there is nothing to
   translate into yet. Identifiers, types and file names are English: the code reads to anyone.
+- **More than one Nursery Node is experimental.** Choosing between rooms works, and the Parent
+  Node no longer follows whichever one announced itself last — but it has only ever been run
+  against a single nursery. The paths that involve two of them are reasoned, not observed.
 - **Not publishable on F-Droid.** FCM's proprietary library is not permitted in F-Droid builds.
 - **CryLog is not a medical device** and is not a substitute for supervision.
 

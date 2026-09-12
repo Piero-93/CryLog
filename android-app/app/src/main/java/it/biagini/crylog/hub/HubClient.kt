@@ -24,6 +24,7 @@
 
 package it.biagini.crylog.hub
 
+import it.biagini.crylog.core.NurseryInfo
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
@@ -172,6 +173,39 @@ class HubClient(private val scope: CoroutineScope) {
                         name = payload.optString("name", name),
                         token = payload.getString("token"),
                     )
+                }
+            }
+        }
+
+    /**
+     * I Nursery Node accoppiati, per poter scegliere quale ascoltare.
+     *
+     * `/devices` accetta anche un token di dispositivo, non solo quello di
+     * amministrazione: un Parent Node puo' chiedere la lista con il proprio,
+     * senza endpoint nuovi e senza conoscere segreti che non gli servono.
+     */
+    suspend fun nurseries(hubUrl: String, token: String): Result<List<NurseryInfo>> =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("${hubUrl.trimEnd('/')}/devices")
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("http_${response.code}")
+                    val devices = JSONObject(response.body?.string().orEmpty()).getJSONArray("devices")
+
+                    (0 until devices.length())
+                        .map { devices.getJSONObject(it) }
+                        .filter { it.optString("role") == "nursery" }
+                        .map {
+                            NurseryInfo(
+                                id = it.getString("id"),
+                                name = it.optString("name").ifBlank { "?" },
+                                online = it.optBoolean("online"),
+                            )
+                        }
                 }
             }
         }
