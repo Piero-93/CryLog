@@ -244,9 +244,17 @@ class ListenService : Service() {
 
             if (peer == null || client.state.value !is ConnectionState.Connected) {
                 // Senza Hub, o senza Nursery, non c'è nessuno a cui chiedere la
-                // sessione. Non è un guasto dello stream, ed è già raccontato
-                // altrove: qui si aspetta e basta.
+                // sessione. Non è un guasto dello stream: qui si aspetta.
                 silentSince = if (silentSince == 0L) now else silentSince
+
+                // Ma l'attesa va detta. Acceso mentre il Nursery Node è già
+                // sparito, nessun NurseryOffline arriverà mai — è successo
+                // prima — e la scheda resterebbe su "Connessione…" per sempre,
+                // in tono neutro, mentre nessuno sta sorvegliando. Senza Hub
+                // invece si tace: quello lo racconta già l'intestazione.
+                if (peer == null && client.state.value is ConnectionState.Connected) {
+                    ContinuousListening.setHealth(ContinuousListening.Health.NURSERY_GONE)
+                }
                 continue
             }
 
