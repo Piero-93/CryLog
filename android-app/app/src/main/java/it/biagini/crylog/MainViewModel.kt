@@ -33,6 +33,7 @@ import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.NurseryChoice
+import it.biagini.crylog.core.NurseryInfo
 import it.biagini.crylog.core.Role
 import it.biagini.crylog.core.StreamRequest
 import it.biagini.crylog.core.StreamTransport
@@ -103,6 +104,14 @@ sealed interface UiState {
         /** Il Nursery Node attualmente in ascolto, se ce n'è uno. */
         val nurseryId: String? = null,
         val nurseryName: String? = null,
+        /** Tutti i Nursery Node accoppiati: serve solo a poterne scegliere uno. */
+        val nurseries: List<NurseryInfo> = emptyList(),
+        /**
+         * Quello scelto, che non è quello vivo: se è spento, [nurseryId] è
+         * nullo ma la scelta resta questa. Tenerli separati è l'unico modo
+         * perché il menu non evidenzi qualcosa che nessuno ha scelto.
+         */
+        val preferredNurseryId: String? = null,
         val stream: TransportState = TransportState.Idle,
     ) : UiState
 }
@@ -144,6 +153,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.i(TAG, "il Nursery Node preferito non c'è, passo a $nurseryName")
         }
         store.preferredNurseryId = nurseryId
+        _uiState.update { current ->
+            if (current !is UiState.Session) return@update current
+            current.copy(preferredNurseryId = nurseryId)
+        }
         return true
     }
     private var transportJob: Job? = null
@@ -425,6 +438,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             is HubMessage.NurseryOffline -> {
+                loadNurseries()
                 // Riguarda un altro Nursery Node: non e' quello che ascoltiamo.
                 if (!NurseryChoice.concerns(store.preferredNurseryId, message.nurseryId)) return
 
@@ -447,6 +461,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Il Nursery Node è tornato: l'allarme non descrive più la realtà,
             // e al suo posto va lo stato di chi sorveglia.
             is HubMessage.NurseryOnline -> {
+                // Il menu mostra chi e' collegato: senza rileggere qui, quelle
+                // etichette resterebbero ferme all'ultima riconnessione.
+                loadNurseries()
                 if (!adopt(message.nurseryId, message.nurseryName)) return
 
                 if (alerts) {
@@ -488,11 +505,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Gli eventi arrivati in tempo reale restano in cima: sono gli stessi, ma
      * la cronologia è ordinata e potrebbe non contenere ancora l'ultimo.
      */
+    /**
+     * L'elenco dei Nursery Node, per il menu che compare quando ce n'e' piu' di uno.
+     *
+     * Un fallimento non si racconta: senza elenco il menu non compare e resta
+     * la regola di adozione, che e' il comportamento di sempre.
+     */
+    private fun loadNurseries() {
+        val url = store.hubUrl ?: return
+        val token = store.deviceToken ?: return
+
+        viewModelScope.launch {
+            client.nurseries(url, token).onSuccess { list ->
+                _uiState.update { current ->
+                    if (current !is UiState.Session) return@update current
+                    current.copy(nurseries = list, preferredNurseryId = store.preferredNurseryId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Sceglie quale Nursery Node ascoltare, quando ce n'e' piu' di uno.
+     *
+     * La regola di [NurseryChoice] impedisce che si cambi stanza da soli; questa
+     * e' la strada per cambiarla apposta.
+     */
+    fun chooseNursery(id: String) {
+        if (store.preferredNurseryId == id) return
+        val chosen = (_uiState.value as? UiState.Session)?.nurseries?.find { it.id == id } ?: return
+
+        store.preferredNurseryId = id
+        viewModelScope.launch { transport?.stop() }
+
+        _uiState.update { current ->
+            if (current !is UiState.Session) return@update current
+            current.copy(
+                preferredNurseryId = id,
+                nurseryId = if (chosen.online) chosen.id else null,
+                nurseryName = if (chosen.online) chosen.name else null,
+            )
+        }
+
+        // Il servizio dell'ascolto continuo conosce il suo Nursery Node dagli
+        // annunci, e l'Hub li rimanda tutti a chi si ricollega: spegnerlo e
+        // riaccenderlo e' il modo piu' semplice di fargli rileggere la scelta.
+        if (store.continuousListening) {
+            setContinuousListening(false)
+            setContinuousListening(true)
+        }
+    }
+
     private fun loadHistory() {
         val url = store.hubUrl ?: return
         val token = store.deviceToken ?: return
 
         viewModelScope.launch {
+            loadNurseries()
             client.recentEvents(url, token)
                 .onSuccess { history ->
                     _uiState.update { current ->

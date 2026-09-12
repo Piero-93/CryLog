@@ -517,6 +517,14 @@ private fun SessionScreen(
             }
         }
 
+        // Prima dell'ascolto: si sceglie la stanza, poi si decide come
+        // sentirla. Con un Nursery Node solo il menu non compare affatto.
+        NurseryPicker(
+            nurseries = state.nurseries,
+            selectedId = state.preferredNurseryId,
+            onSelect = viewModel::chooseNursery,
+        )
+
         ContinuousCard(
             enabled = continuous,
             onEnabledChange = { on ->

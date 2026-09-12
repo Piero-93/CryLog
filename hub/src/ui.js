@@ -765,7 +765,6 @@ export const PAIRING_PAGE = `<!doctype html>
     if (pc) { pc.close(); pc = null }
     if (ws) { ws.onclose = null; ws.close(); ws = null }
     $('audio').srcObject = null
-    $('nursery').disabled = false
     $('listen').textContent = 'Ascolta'
     $('listen').classList.remove('ghost')
     $('listen').disabled = false
@@ -791,9 +790,6 @@ export const PAIRING_PAGE = `<!doctype html>
 
     listening = true
     greeted = false
-    // La sessione e' legata al Nursery scelto quando e' partita: lasciare il
-    // menu attivo lo farebbe sembrare cambiabile a caldo, e non lo e'.
-    $('nursery').disabled = true
     $('listen').textContent = 'Interrompi'
     $('listen').classList.add('ghost')
     $('listen').disabled = false
@@ -828,6 +824,16 @@ export const PAIRING_PAGE = `<!doctype html>
   // aspettare il giro di lettura dei dispositivi. E la scelta si ricorda.
   $('nursery').addEventListener('change', () => {
     localStorage.setItem(NURSERY, $('nursery').value)
+
+    // Cambiare stanza mentre si ascolta chiude la sessione e ne apre una
+    // sull'altra, come fa l'app. Non e' il cambio silenzioso che si e'
+    // lavorato per togliere: qui l'ha chiesto chi guarda, e costringerlo a
+    // Interrompi -> scegli -> Ascolta sarebbe tre gesti per dire una cosa.
+    if (listening) {
+      stopListening('')
+      startListening()
+      return
+    }
     loadDevices()
   })
 
