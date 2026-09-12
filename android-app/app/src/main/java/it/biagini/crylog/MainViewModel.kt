@@ -403,6 +403,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             is HubMessage.NurseryOffline -> {
+                // Prima di qualunque avviso: sapere chi c'e' non e' un avviso, e
+                // con questo aggiornamento dopo la guardia la schermata ha
+                // continuato a offrire "Ascolta" verso un Nursery Node sparito.
+                _uiState.update { current ->
+                    if (current !is UiState.Session) return@update current
+                    if (current.nurseryId != message.nurseryId) return@update current
+                    current.copy(nurseryId = null, nurseryName = null)
+                }
+
                 if (!alerts) return
                 notifier.clearWatching()
                 if (!SeenEvents.markSeen("offline:${message.nurseryId}")) return
@@ -432,7 +441,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             is HubMessage.SignalUndelivered -> {
                 Log.w(TAG, "signaling non consegnato: ${message.reason}")
-                viewModelScope.launch { transport?.stop() }
+                // Fermarsi e basta riportava allo stato iniziale senza una
+                // parola, e sembrava che il tocco non fosse arrivato.
+                val why = when (message.reason) {
+                    "offline" -> "Il Nursery Node non è collegato"
+                    "unknown_device" -> "Il Nursery Node non risulta più accoppiato"
+                    else -> "Il Nursery Node non è raggiungibile"
+                }
+                viewModelScope.launch { transport?.fail(why) }
             }
 
             else -> Unit

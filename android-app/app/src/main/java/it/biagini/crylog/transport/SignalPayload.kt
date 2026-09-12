@@ -35,7 +35,8 @@ sealed interface SignalPayload {
     /**
      * Il Nursery Node sta gia trasmettendo a qualcun altro.
      *
-     * Un solo ascoltatore alla volta: accettare il secondo butterebbe fuori il
+     * Oltre [WebRtcTransport.MAX_LISTENERS] non se ne accettano altri:
+     * accettarne uno in piu' butterebbe fuori il
      * primo senza dirglielo, che e il modo peggiore di gestire un limite.
      */
     data object Busy : SignalPayload

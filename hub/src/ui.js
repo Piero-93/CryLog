@@ -261,10 +261,15 @@ export const PAIRING_PAGE = `<!doctype html>
   const removeDevice = async (device) => {
     if (!confirm('Rimuovere "' + device.name + '"? Dovrà rifare il pairing per tornare.')) return
     const token = localStorage.getItem(STORED)
-    await fetch('/devices/' + device.id, {
+    const res = await fetch('/devices/' + device.id, {
       method: 'DELETE',
       headers: { authorization: 'Bearer ' + token },
-    })
+    }).catch(() => null)
+    // Senza questo controllo la riga spariva e poi riappariva al giro dopo,
+    // senza che nessuno dicesse che la rimozione non era riuscita.
+    if (!res || !res.ok) {
+      alert('Non è stato possibile rimuovere "' + device.name + '".')
+    }
     loadDevices()
   }
 
@@ -329,6 +334,12 @@ export const PAIRING_PAGE = `<!doctype html>
     } catch {
       setPill('Hub non raggiungibile', 'off')
       list.innerHTML = '<li class="empty">Hub non raggiungibile</li>'
+      // Senza la lista non si sa se il Nursery Node sia collegato: il pulsante
+      // resterebbe com'era, promettendo qualcosa che non si puo' sapere.
+      if (!listening) {
+        $('listen').disabled = true
+        setState('Hub non raggiungibile')
+      }
     }
   }
 
@@ -487,7 +498,11 @@ export const PAIRING_PAGE = `<!doctype html>
 
   // Messaggi che descrivono l'attesa, non un esito: solo questi si possono
   // sovrascrivere quando la situazione si sblocca.
-  const IDLE_STATES = ['nessun Nursery Node accoppiato', 'Nursery Node non collegato']
+  const IDLE_STATES = [
+    'nessun Nursery Node accoppiato',
+    'Nursery Node non collegato',
+    'Hub non raggiungibile',
+  ]
 
   const fillNurseries = (devices) => {
     const select = $('nursery')
@@ -734,7 +749,7 @@ export const PAIRING_PAGE = `<!doctype html>
       return
     }
 
-    if (payload.kind === 'busy') stopListening('il Nursery Node ha già tre ascoltatori')
+    if (payload.kind === 'busy') stopListening('il Nursery Node ha già il massimo di ascoltatori')
     if (payload.kind === 'stop') stopListening('sessione chiusa dal Nursery Node')
   }
 
@@ -745,6 +760,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (pc) { pc.close(); pc = null }
     if (ws) { ws.onclose = null; ws.close(); ws = null }
     $('audio').srcObject = null
+    $('nursery').disabled = false
     $('listen').textContent = 'Ascolta'
     $('listen').classList.remove('ghost')
     $('listen').disabled = false
@@ -770,6 +786,9 @@ export const PAIRING_PAGE = `<!doctype html>
 
     listening = true
     greeted = false
+    // La sessione e' legata al Nursery scelto quando e' partita: lasciare il
+    // menu attivo lo farebbe sembrare cambiabile a caldo, e non lo e'.
+    $('nursery').disabled = true
     $('listen').textContent = 'Interrompi'
     $('listen').classList.add('ghost')
     $('listen').disabled = false

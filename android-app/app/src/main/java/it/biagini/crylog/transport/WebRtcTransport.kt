@@ -357,6 +357,11 @@ class WebRtcTransport(
         _state.value = TransportState.Idle
     }
 
+    override suspend fun fail(reason: String) {
+        stop()
+        _state.value = TransportState.Failed(reason)
+    }
+
     /**
      * Chiude una sessione sola, lasciando in piedi le altre.
      *
@@ -557,7 +562,7 @@ class WebRtcTransport(
         val DIRECTIONS = setOf("sendrecv", "sendonly", "recvonly", "inactive")
         const val TAG = "CryLogStream"
         const val STREAM_ID = "crylog"
-        const val BUSY_REASON = "Il Nursery Node sta gia trasmettendo al massimo dei dispositivi"
+        const val BUSY_REASON = "Il Nursery Node sta già trasmettendo al massimo dei dispositivi"
 
         /**
          * Quanti ascoltatori insieme.
