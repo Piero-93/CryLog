@@ -101,6 +101,7 @@ export const PAIRING_PAGE = `<!doctype html>
   .state.live { color: var(--good-fg); }
   .state.bad { color: var(--danger); }
   .named { margin-bottom: var(--s2); }
+  .hint { color: var(--muted); font-size: .78rem; margin: 6px 2px var(--s2); }
 
   .code { font: 700 2rem/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
           letter-spacing: .14em; text-align: center; margin: var(--s2) 0 4px; }
@@ -161,6 +162,7 @@ export const PAIRING_PAGE = `<!doctype html>
       </div>
 
       <select id="nursery"></select>
+      <p class="hint" id="nurseryHint" hidden>Pi&ugrave; camerette: funzione sperimentale.</p>
       <button id="listen">Ascolta</button>
       <div class="error" id="listenError" hidden></div>
       <audio id="audio" autoplay playsinline></audio>
@@ -522,6 +524,7 @@ export const PAIRING_PAGE = `<!doctype html>
     if (select.value) localStorage.setItem(NURSERY, select.value)
     // Con un Nursery Node solo, scegliere non ha senso: il menu sparisce.
     select.hidden = nurseries.length < 2
+    $('nurseryHint').hidden = select.hidden
 
     if (listening) return
 

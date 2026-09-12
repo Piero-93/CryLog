@@ -68,7 +68,8 @@ fun NurseryPicker(
         ) {
             Text("Quale cameretta", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Gli avvisi e l'ascolto riguardano quella scelta.",
+                "Gli avvisi e l'ascolto riguardano quella scelta. " +
+                    "Funzione sperimentale: provata finora con una cameretta sola.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
