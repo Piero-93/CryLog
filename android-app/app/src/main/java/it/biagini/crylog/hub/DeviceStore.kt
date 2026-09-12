@@ -59,6 +59,18 @@ class DeviceStore(context: Context) {
         get() = prefs.getString(KEY_NAME, null)
         set(value) = prefs.edit().putString(KEY_NAME, value).apply()
 
+    /**
+     * Il Nursery Node che questo Parent ascolta.
+     *
+     * Senza, il Parent seguiva l'ultimo che si annunciava: con due accesi
+     * cambiava stanza da solo e in silenzio, che su un baby monitor non e' una
+     * comodita' mancante ma un guasto. Il primo che si vede viene adottato, e
+     * da li' in poi gli altri annunci non spostano niente.
+     */
+    var preferredNurseryId: String?
+        get() = prefs.getString(KEY_NURSERY, null)
+        set(value) = prefs.edit().putString(KEY_NURSERY, value).apply()
+
     val isPaired: Boolean
         get() = !deviceToken.isNullOrBlank() && !hubUrl.isNullOrBlank() && role != null
 
@@ -148,6 +160,10 @@ class DeviceStore(context: Context) {
             .remove(KEY_DEVICE_ID)
             .remove(KEY_TOKEN)
             .remove(KEY_NAME)
+            // Chi si riaccoppia riparte da zero: tenere il Nursery Node di
+            // prima significherebbe restare agganciati a un id che dopo un
+            // nuovo pairing sull'Hub non esiste piu'.
+            .remove(KEY_NURSERY)
             .apply()
     }
 
@@ -169,5 +185,6 @@ class DeviceStore(context: Context) {
         const val KEY_AUTOSTART_SEEN = "autostart_notice_seen"
         const val KEY_FCM_TOKEN = "fcm_token_pending"
         const val KEY_FCM_SENT = "fcm_token_sent"
+        const val KEY_NURSERY = "preferred_nursery_id"
     }
 }

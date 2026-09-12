@@ -476,6 +476,7 @@ export const PAIRING_PAGE = `<!doctype html>
   // imparare niente di nuovo, e il Nursery Node non e' stato toccato: risponde
   // gia' a chiunque abbia ruolo parent.
   const DEVICE = 'crylog-device-token'
+  const NURSERY = 'crylog-nursery-id'
   let ws = null
   let pc = null
   let nurseryId = null
@@ -507,7 +508,10 @@ export const PAIRING_PAGE = `<!doctype html>
   const fillNurseries = (devices) => {
     const select = $('nursery')
     const nurseries = devices.filter((d) => d.role === 'nursery')
-    const chosen = select.value
+    // La scelta sopravvive al ricaricamento: senza, riaprendo la pagina il
+    // menu tornava in silenzio al primo della lista, che con due Nursery Node
+    // vuol dire ascoltare la stanza sbagliata senza aver scelto niente.
+    const chosen = select.value || localStorage.getItem(NURSERY) || ''
     select.replaceChildren(...nurseries.map((d) => {
       const option = document.createElement('option')
       option.value = d.id
@@ -515,6 +519,7 @@ export const PAIRING_PAGE = `<!doctype html>
       return option
     }))
     if (nurseries.some((d) => d.id === chosen)) select.value = chosen
+    if (select.value) localStorage.setItem(NURSERY, select.value)
     // Con un Nursery Node solo, scegliere non ha senso: il menu sparisce.
     select.hidden = nurseries.length < 2
 
@@ -820,8 +825,11 @@ export const PAIRING_PAGE = `<!doctype html>
   }
 
   // Scegliendo un altro Nursery il pulsante deve rivalutarsi subito, senza
-  // aspettare il giro di lettura dei dispositivi.
-  $('nursery').addEventListener('change', () => loadDevices())
+  // aspettare il giro di lettura dei dispositivi. E la scelta si ricorda.
+  $('nursery').addEventListener('change', () => {
+    localStorage.setItem(NURSERY, $('nursery').value)
+    loadDevices()
+  })
 
   $('listen').addEventListener('click', () => {
     if (listening) return stopListening('')
