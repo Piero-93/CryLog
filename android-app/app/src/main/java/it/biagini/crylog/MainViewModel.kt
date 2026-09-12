@@ -32,6 +32,7 @@ import androidx.lifecycle.viewModelScope
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
+import it.biagini.crylog.core.NurseryChoice
 import it.biagini.crylog.core.Role
 import it.biagini.crylog.core.StreamRequest
 import it.biagini.crylog.core.StreamTransport
@@ -128,6 +129,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Distingue le richieste di ascolto, per non far scadere quella sbagliata. */
     private var listenAttempt = 0
+
+    /** La regola sta in [NurseryChoice]; qui si applica e si ricorda la scelta. */
+    private fun adopt(nurseryId: String, nurseryName: String): Boolean {
+        val preferred = store.preferredNurseryId
+        val live = (_uiState.value as? UiState.Session)?.nurseryId != null
+
+        if (!NurseryChoice.shouldAdopt(preferred, nurseryId, live)) {
+            Log.i(TAG, "altro Nursery Node online, ignorato: $nurseryName")
+            return false
+        }
+
+        if (preferred != null && preferred != nurseryId) {
+            Log.i(TAG, "il Nursery Node preferito non c'è, passo a $nurseryName")
+        }
+        store.preferredNurseryId = nurseryId
+        return true
+    }
     private var transportJob: Job? = null
 
     private fun rebuildTransport() {
@@ -407,6 +425,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             is HubMessage.NurseryOffline -> {
+                // Riguarda un altro Nursery Node: non e' quello che ascoltiamo.
+                if (!NurseryChoice.concerns(store.preferredNurseryId, message.nurseryId)) return
+
                 // Prima di qualunque avviso: sapere chi c'e' non e' un avviso, e
                 // con questo aggiornamento dopo la guardia la schermata ha
                 // continuato a offrire "Ascolta" verso un Nursery Node sparito.
@@ -426,6 +447,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Il Nursery Node è tornato: l'allarme non descrive più la realtà,
             // e al suo posto va lo stato di chi sorveglia.
             is HubMessage.NurseryOnline -> {
+                if (!adopt(message.nurseryId, message.nurseryName)) return
+
                 if (alerts) {
                     SeenEvents.forgetOffline(message.nurseryId)
                     notifier.clearNurseryGone()

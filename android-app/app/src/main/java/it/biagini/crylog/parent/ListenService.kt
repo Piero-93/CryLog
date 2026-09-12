@@ -45,6 +45,7 @@ import android.os.PowerManager
 import android.util.Log
 import it.biagini.crylog.MainActivity
 import it.biagini.crylog.R
+import it.biagini.crylog.core.NurseryChoice
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
@@ -323,6 +324,22 @@ class ListenService : Service() {
      * ottiene lo stesso risultato senza rinegoziare a mano, e ripulisce anche i
      * casi in cui il guasto non è nel trasporto ma nella sorgente.
      */
+    /** La regola sta in [NurseryChoice]; qui si applica e si ricorda la scelta. */
+    private fun adopt(id: String, name: String): Boolean {
+        val preferred = store.preferredNurseryId
+
+        if (!NurseryChoice.shouldAdopt(preferred, id, nurseryId != null)) {
+            Log.i(TAG, "altro Nursery Node online, ignorato: $name")
+            return false
+        }
+
+        if (preferred != null && preferred != id) {
+            Log.i(TAG, "il Nursery Node preferito non c'è, passo a $name")
+        }
+        store.preferredNurseryId = id
+        return true
+    }
+
     private suspend fun reopenSession(peer: String) {
         transport?.stop()
         // Solo audio: al buio il video non mostra nulla e in una notte intera
@@ -362,6 +379,12 @@ class ListenService : Service() {
             }
 
             is HubMessage.NurseryOnline -> {
+                // Lo stesso patto del ViewModel, e qui conta il doppio: questo
+                // servizio riapre la sessione da solo, quindi seguire l'ultimo
+                // che si annuncia significherebbe mettersi ad ascoltare la
+                // stanza sbagliata mentre nessuno guarda lo schermo.
+                if (!adopt(message.nurseryId, message.nurseryName)) return
+
                 Log.i(TAG, "nursery online: ${message.nurseryName}")
                 // Riparte subito, senza scontare il backoff accumulato mentre
                 // non c'era nessuno da chiamare. E senza contare quel tempo come
@@ -381,6 +404,7 @@ class ListenService : Service() {
             }
 
             is HubMessage.NurseryOffline -> {
+                if (!NurseryChoice.concerns(store.preferredNurseryId, message.nurseryId)) return
                 Log.w(TAG, "nursery offline (${message.reason}): chiudo la sessione")
                 // Nessuno sta più sorvegliando: è la cosa più importante che
                 // questo sistema possa dire, e va detta suonando.
