@@ -231,6 +231,55 @@ node state it writes are in `.gitignore`: an auth key enrols a machine on your t
 By default the image comes from `ghcr.io/piero-93/crylog-hub:latest`, published by the release
 workflow. To build from source instead, drop `image:` and put back `build: .`.
 
+### Behind a reverse proxy
+
+A hostname of its own — what `serve.json` sets up — needs no configuration anywhere. Nothing below
+applies to it.
+
+A path prefix works too, say `https://home.<your-tailnet>.ts.net/crylog`, on one condition: **the
+proxy has to strip the prefix before passing the request on.** The Hub matches its routes exactly
+and is told nothing about prefixes. The page it serves finds the prefix in its own address, so it
+needs no configuration either, and the app only wants the full URL, prefix included, in the field
+it asks for once.
+
+```caddyfile
+# Caddy — handle_path strips, handle does not
+home.<your-tailnet>.ts.net {
+    redir /crylog /crylog/
+    handle_path /crylog/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+```
+
+```nginx
+# nginx — the trailing slash on proxy_pass is what strips the prefix
+location = /crylog { return 301 /crylog/; }
+location /crylog/ {
+    proxy_pass http://127.0.0.1:8080/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 300s;
+}
+```
+
+```sh
+# tailscale serve — strips the prefix on its own
+tailscale serve --bg --set-path=/crylog 8080
+```
+
+Traefik needs its `StripPrefix` middleware; without it the Hub answers 404 to everything.
+
+Three things sink this setup, always the same three:
+
+- **The redirect from `/crylog` to `/crylog/` is not decoration.** Without the trailing slash the
+  browser resolves every address one level too high and the page loads but does nothing.
+- **WebSockets need saying so on nginx**, or signalling never connects — no alerts, no streaming.
+- **The proxy's read timeout outranks ours.** The app pings every 30s and nginx defaults to 60s,
+  which is one lost packet away from cutting a working session. The Hub already declares a Nursery
+  Node offline after 90s of silence; it does not need the proxy to guess as well.
+
 ### Pairing a device
 
 Open the Hub's URL in the phone's browser: `/` serves a small page that creates a pairing code.

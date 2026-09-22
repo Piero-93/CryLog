@@ -219,6 +219,13 @@ export const PAIRING_PAGE = `<!doctype html>
 <script>
   const $ = (id) => document.getElementById(id)
   const STORED = 'crylog-admin-token'
+
+  // L'Hub può stare dietro un reverse proxy che lo espone sotto un prefisso,
+  // per esempio /crylog. Lui non lo sa e non deve saperlo, ma l'indirizzo di
+  // questa pagina il prefisso ce l'ha: ricavarlo da lì tiene le chiamate
+  // dentro al prefisso, senza una configurazione da ripetere anche qui.
+  const BASE = location.pathname.slice(0, location.pathname.lastIndexOf('/'))
+
   let countdown = null
 
   const stored = localStorage.getItem(STORED)
@@ -263,7 +270,7 @@ export const PAIRING_PAGE = `<!doctype html>
   const removeDevice = async (device) => {
     if (!confirm('Rimuovere "' + device.name + '"? Dovrà rifare il pairing per tornare.')) return
     const token = localStorage.getItem(STORED)
-    const res = await fetch('/devices/' + device.id, {
+    const res = await fetch(BASE + '/devices/' + device.id, {
       method: 'DELETE',
       headers: { authorization: 'Bearer ' + token },
     }).catch(() => null)
@@ -292,7 +299,7 @@ export const PAIRING_PAGE = `<!doctype html>
     }
 
     try {
-      const res = await fetch('/devices', { headers: { authorization: 'Bearer ' + token } })
+      const res = await fetch(BASE + '/devices', { headers: { authorization: 'Bearer ' + token } })
       if (!res.ok) {
         list.innerHTML = '<li class="empty">Non autorizzato</li>'
         return
@@ -419,7 +426,7 @@ export const PAIRING_PAGE = `<!doctype html>
     }
 
     try {
-      const res = await fetch('/events?limit=30', { headers: { authorization: 'Bearer ' + token } })
+      const res = await fetch(BASE + '/events?limit=30', { headers: { authorization: 'Bearer ' + token } })
       if (!res.ok) {
         list.innerHTML = '<li class="empty">Non autorizzato</li>'
         return
@@ -563,14 +570,14 @@ export const PAIRING_PAGE = `<!doctype html>
     const admin = localStorage.getItem(STORED) || $('token').value.trim()
     if (!admin) throw new Error("Serve l'admin token.")
 
-    const codeRes = await fetch('/pairing-codes', {
+    const codeRes = await fetch(BASE + '/pairing-codes', {
       method: 'POST',
       headers: { authorization: 'Bearer ' + admin },
     })
     if (!codeRes.ok) throw new Error('Codice di pairing non generato.')
     const { code } = await codeRes.json()
 
-    const pairRes = await fetch('/pair', {
+    const pairRes = await fetch(BASE + '/pair', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code, role: 'parent', name: browserName() }),
@@ -799,7 +806,7 @@ export const PAIRING_PAGE = `<!doctype html>
     setState("connessione all'Hub…")
 
     const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'
-    ws = new WebSocket(scheme + location.host + '/ws?token=' + encodeURIComponent(token))
+    ws = new WebSocket(scheme + location.host + BASE + '/ws?token=' + encodeURIComponent(token))
     ws.onmessage = (event) => {
       try {
         onHubMessage(JSON.parse(event.data))
@@ -876,7 +883,7 @@ export const PAIRING_PAGE = `<!doctype html>
     $('error').hidden = true
 
     try {
-      const res = await fetch('/pairing-codes', {
+      const res = await fetch(BASE + '/pairing-codes', {
         method: 'POST',
         headers: { authorization: 'Bearer ' + token },
       })
