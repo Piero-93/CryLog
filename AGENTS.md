@@ -96,11 +96,21 @@ variable. `.gitignore` covers the usual filenames, but check before staging.
 
 ## Status
 
-All nine phases are implemented, and v0.1.0 is released: scaffolding, Hub, app
-skeleton, noise detection with alerts, push notifications, WebRTC streaming with
-video and talk-back, continuous listening, streaming away from home over the
-tailnet, role changes without re-pairing, and up to three Parent Nodes on one
-Nursery Node.
+All nine phases are implemented, and the current release is **v0.1.6**:
+scaffolding, Hub, app skeleton, noise detection with alerts, push notifications,
+WebRTC streaming with video and talk-back, continuous listening, streaming away
+from home over the tailnet, role changes without re-pairing, and up to three
+Parent Nodes on one Nursery Node.
+
+Five releases followed v0.1.0, and three of them changed things worth knowing
+before reading the code. The Hub now serves a **Parent Node in the browser**, a
+second client on the same signalling protocol rather than a rewrite — it is what
+covers the house with only one phone in it. Neither client **changes room on its
+own** while it is listening to a live one, which is a rule in `core/NurseryChoice`
+and not a line of logic per caller. And the page the Hub serves works **under a
+path prefix**, because it reads the prefix off its own address; the Hub itself is
+told nothing about prefixes and the proxy has to strip them, as the
+[README](README.md) spells out.
 
 What remains is written down rather than remembered: the [README](README.md) has
 the declared limitations, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) the
