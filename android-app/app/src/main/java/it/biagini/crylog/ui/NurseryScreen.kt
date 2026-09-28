@@ -226,6 +226,12 @@ fun NurseryScreen(
             }
         }
 
+        BatteryCard(
+            "Con l'ottimizzazione della batteria Android può congelare CryLog a " +
+                "schermo spento: il monitoraggio si ferma e i Parent Node lo sanno " +
+                "solo dopo un minuto e mezzo.",
+        )
+
         DndAccessCard()
 
         CollapsibleSection("Rilevamento") {

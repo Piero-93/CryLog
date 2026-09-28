@@ -507,6 +507,15 @@ private fun SessionScreen(
             // nessuna push ad app chiusa: e' l'ultima difesa che salta.
             AutostartCard()
 
+            // Solo con l'ascolto continuo: le push ad alta priorita' arrivano
+            // anche in Doze, lo stream tenuto aperto tutta la notte no.
+            if (continuous) {
+                BatteryCard(
+                    "Con l'ottimizzazione della batteria Android può interrompere " +
+                        "l'ascolto continuo a schermo spento.",
+                )
+            }
+
             DndAccessCard()
 
             // Il banner compare solo quando c'e' qualcosa da fare: a connessione
