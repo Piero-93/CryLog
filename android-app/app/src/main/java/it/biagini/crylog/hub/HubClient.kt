@@ -76,6 +76,13 @@ class HubClient(private val scope: CoroutineScope) {
     private val _messages = MutableSharedFlow<HubMessage>(extraBufferCapacity = 64)
     val messages: SharedFlow<HubMessage> = _messages.asSharedFlow()
 
+    /**
+     * Connessione, riconnessione e chiusura arrivano da thread diversi: la UI,
+     * il job di riconnessione e i thread di OkHttp. Senza un lock solo, un
+     * disconnect() a meta' di un tentativo lasciava vivo un socket orfano.
+     */
+    private val lock = Any()
+
     private var socket: WebSocket? = null
     private var reconnectJob: Job? = null
     private var attempt = 0
@@ -245,19 +252,24 @@ class HubClient(private val scope: CoroutineScope) {
             }
         }
 
-    fun connect(hubUrl: String, token: String) {
-        disconnect()
+    fun connect(hubUrl: String, token: String) = synchronized(lock) {
+        disconnectLocked()
         attempt = 0
-        openSocket(hubUrl, token)
+        openSocketLocked(hubUrl, token)
     }
 
-    private fun openSocket(hubUrl: String, token: String) {
+    private fun openSocketLocked(hubUrl: String, token: String) {
         // Identifica questo tentativo. Confrontare il WebSocket con il campo
         // "socket" non funzionerebbe: l'assegnazione avviene dopo che
         // newWebSocket ritorna, e i callback possono arrivare prima.
         val session = ++sessionId
         closedByUs = false
         _state.value = ConnectionState.Connecting
+
+        // Chi arriva qui crede che il socket precedente sia morto, ma non e'
+        // detto: lasciarlo aperto voleva dire due connessioni dello stesso
+        // dispositivo, e per l'Hub la caduta di una non era piu' una caduta.
+        socket?.cancel()
 
         val url = hubUrl.trimEnd('/')
             .replaceFirst("https://", "wss://")
@@ -271,12 +283,14 @@ class HubClient(private val scope: CoroutineScope) {
         socket = http.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (session != sessionId) {
-                    webSocket.close(1000, "sessione superata")
-                    return
+                synchronized(lock) {
+                    if (session != sessionId) {
+                        webSocket.close(1000, "sessione superata")
+                        return
+                    }
+                    attempt = 0
+                    _state.value = ConnectionState.Connected
                 }
-                attempt = 0
-                _state.value = ConnectionState.Connected
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -288,40 +302,65 @@ class HubClient(private val scope: CoroutineScope) {
                 scope.launch { _messages.emit(message) }
             }
 
+            // OkHttp non risponde da solo alla chiusura chiesta dall'Hub, e
+            // senza risposta onClosed non arriva: la riconnessione aspettava
+            // che fallisse il ping successivo, fino a un minuto dopo. 1000 e
+            // non il codice ricevuto: 1005, "nessun codice", e' riservato e
+            // OkHttp rifiuterebbe di rimandarlo.
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null)
+            }
+
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (closedByUs || session != sessionId) return
-                _state.value = ConnectionState.Disconnected
-                scheduleReconnect(hubUrl, token)
+                synchronized(lock) {
+                    if (closedByUs || session != sessionId) return
+                    _state.value = ConnectionState.Disconnected
+                    scheduleReconnectLocked(hubUrl, token)
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (closedByUs || session != sessionId) return
-                // 401 significa token non valido: riprovare all'infinito non lo
-                // farebbe diventare valido, serve un nuovo pairing.
-                val unauthorized = response?.code == 401
-                _state.value = ConnectionState.Failed(
-                    reason = t.message ?: response?.message ?: "connessione fallita",
-                    unauthorized = unauthorized,
-                )
-                if (!unauthorized) scheduleReconnect(hubUrl, token)
+                synchronized(lock) {
+                    if (closedByUs || session != sessionId) return
+                    // 401 significa token non valido: riprovare all'infinito non lo
+                    // farebbe diventare valido, serve un nuovo pairing.
+                    val unauthorized = response?.code == 401
+                    _state.value = ConnectionState.Failed(
+                        reason = t.message ?: response?.message ?: "connessione fallita",
+                        unauthorized = unauthorized,
+                    )
+                    if (!unauthorized) scheduleReconnectLocked(hubUrl, token)
+                }
             }
         })
     }
 
-    private fun scheduleReconnect(hubUrl: String, token: String) {
+    private fun scheduleReconnectLocked(hubUrl: String, token: String) {
         reconnectJob?.cancel()
+        val backoff = minOf(MAX_BACKOFF_MS, BASE_BACKOFF_MS shl minOf(attempt, 5))
+        attempt++
+        val session = sessionId
         reconnectJob = scope.launch {
-            val backoff = minOf(MAX_BACKOFF_MS, BASE_BACKOFF_MS shl minOf(attempt, 5))
-            attempt++
             delay(backoff)
-            openSocket(hubUrl, token)
+            synchronized(lock) {
+                // Cancellare il job non basta: se l'attesa e' gia' finita, il
+                // tentativo partirebbe lo stesso dopo un disconnect(), con un
+                // socket che poi nessuno chiude piu'.
+                if (closedByUs || session != sessionId) return@launch
+                openSocketLocked(hubUrl, token)
+            }
         }
     }
 
-    fun send(payload: String): Boolean = socket?.send(payload) ?: false
+    fun send(payload: String): Boolean = synchronized(lock) { socket }?.send(payload) ?: false
 
-    fun disconnect() {
+    fun disconnect() = synchronized(lock) { disconnectLocked() }
+
+    private fun disconnectLocked() {
         closedByUs = true
+        // I callback ancora in viaggio del socket che si chiude non devono
+        // poter programmare una riconnessione.
+        sessionId++
         reconnectJob?.cancel()
         reconnectJob = null
         socket?.close(1000, "chiusura richiesta")
