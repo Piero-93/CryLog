@@ -59,6 +59,16 @@ The intended design is a single capture with two consumers: the WebRTC SDK's
 `JavaAudioDeviceModule` owns the microphone and the `NoiseDetector` reads the same buffers through
 `SamplesReadyCallback`. It is not written yet. This section used to claim it was.
 
+The two captures are not the same audio, and merging them has to choose. Detection opens `MIC`, raw.
+WebRTC opens `VOICE_COMMUNICATION`, which on many phones carries the manufacturer's voice processing,
+and then applies its own software echo cancellation, gain control and noise suppression, which are
+on by default because the audio source is created without constraints. Only the hardware echo
+canceller and noise suppressor are switched off. On the Xiaomi and Poco phones tried, breathing and
+bedding rustle still come through, so the stream is left as it is. `SamplesReadyCallback` hands
+over the samples before WebRTC's processing but after the phone's, so a single capture fed from
+`VOICE_COMMUNICATION` would move detection off raw audio. Thresholds tuned on `MIC` would then
+have to be checked again.
+
 ### WebRTC has to be told about the tailnet
 
 WebRTC's Android network monitor enumerates the networks `ConnectivityManager` reports, and the
