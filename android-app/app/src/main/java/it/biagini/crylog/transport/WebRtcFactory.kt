@@ -36,9 +36,14 @@ object WebRtcFactory {
         )
 
         val audio = JavaAudioDeviceModule.builder(context.applicationContext)
-            // Cancellazione d'eco e soppressione rumore sono pensate per le
-            // telefonate: su un baby monitor toglierebbero proprio i suoni che
-            // interessa sentire.
+            // Si spengono solo le versioni hardware di cancellazione d'eco e
+            // soppressione rumore. Quelle software di WebRTC restano accese,
+            // perche' la sorgente audio nasce senza vincoli, e il microfono si
+            // apre come VOICE_COMMUNICATION, con l'elaborazione vocale del
+            // telefono. Sui Xiaomi e Poco provati si sentono comunque respiro e
+            // fruscii del letto, quindi resta cosi'. Se un giorno servisse
+            // l'audio grezzo, le leve sono i vincoli goog* in createAudioSource
+            // e setAudioSource(MIC) qui: la seconda puo' peggiorare l'eco del talk-back.
             .setUseHardwareAcousticEchoCanceler(false)
             .setUseHardwareNoiseSuppressor(false)
             // Senza questo l'audio esce dall'auricolare, come in una telefonata,

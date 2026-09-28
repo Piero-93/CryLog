@@ -73,8 +73,12 @@ cd hub && node --test        # no test framework, node:test only
   breaks the build.
 - **WebRTC audio defaults to the telephone path**, so it comes out of the earpiece
   and sounds broken. The audio device module sets `USAGE_MEDIA` with
-  `CONTENT_TYPE_SPEECH`. Echo cancellation and noise suppression are switched
-  **off on purpose**: they remove the very sounds a baby monitor exists to hear.
+  `CONTENT_TYPE_SPEECH`. Only the **hardware** echo canceller and noise
+  suppressor are switched off. WebRTC's own software ones stay on, since the
+  audio source is created without constraints, and the microphone opens as
+  `VOICE_COMMUNICATION`, with the phone's voice processing. On the phones tried,
+  breathing and bedding rustle still come through, so this is left as it is.
+  Detection reads its own raw `MIC` capture and is not affected by any of it.
 - **Foreground service types are raised at runtime.** Declaring `camera`
   permanently makes the service refuse to start on a device without the camera
   permission, which is the normal case for audio-only monitoring. The type goes up
