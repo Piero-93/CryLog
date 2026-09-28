@@ -195,6 +195,9 @@ class NoiseMonitorService : Service() {
         val source = AudioSource { samples, length ->
             val event = if (talkBackActive) null else detector.analyze(samples, length, System.currentTimeMillis())
             NoiseMonitor.setLevel(detector.currentLevelDb)
+            // Cinque al secondo, come il grafico di qui: chi ascolta vede la
+            // stessa curva, con la stessa soglia.
+            if (blocks % 2 == 0) transport?.publishLevel(detector.currentLevelDb, store.noiseThresholdDb)
             // Un livello ogni due secondi: abbastanza per capire dai log perche
             // un rumore non e stato rilevato. Spento salvo richiesta esplicita:
             // e l'unica riga che il Nursery scrive in continuazione, e da sola

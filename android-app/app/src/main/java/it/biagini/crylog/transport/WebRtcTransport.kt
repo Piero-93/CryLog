@@ -6,10 +6,15 @@ import it.biagini.crylog.core.Role
 import it.biagini.crylog.core.StreamRequest
 import it.biagini.crylog.core.StreamTransport
 import it.biagini.crylog.core.TransportState
+import it.biagini.crylog.parent.DetectorLevel
 import it.biagini.crylog.parent.StreamLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONException
+import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 import org.webrtc.AudioTrack
 import org.webrtc.AudioTrackSink
 import org.webrtc.DataChannel
@@ -111,6 +116,17 @@ class WebRtcTransport(
      */
     private var remoteAudioSink: AudioTrackSink? = null
 
+    /**
+     * I canali del livello, uno per ascoltatore.
+     *
+     * Fuori da [listeners] perche' li legge il thread della cattura audio,
+     * mentre le sessioni si aprono e chiudono dalle coroutine.
+     */
+    private val levelChannels = ConcurrentHashMap<String, DataChannel>()
+
+    /** Sul Parent: il canale del livello ricevuto, per poterlo chiudere. */
+    private var remoteLevelChannel: DataChannel? = null
+
     /** Ricordato dalla richiesta: serve quando arriva l offerta, non prima. */
     private var wantTalkBack = false
 
@@ -199,6 +215,17 @@ class WebRtcTransport(
         listener.wantsVideo = request.video && !audioOnly()
         val video = if (listener.wantsVideo) openCamera(factory) else null
         video?.let { pc.addTrack(it, listOf(STREAM_ID)) }
+
+        // Prima dell'offerta, cosi' entra nella negoziazione. Senza ritrasmissioni
+        // e senza ordine: un livello vecchio di un secondo non serve a nessuno,
+        // e aspettarlo farebbe solo ritardare quelli nuovi.
+        pc.createDataChannel(
+            LEVEL_CHANNEL,
+            DataChannel.Init().apply {
+                ordered = false
+                maxRetransmits = 0
+            },
+        )?.let { levelChannels[peerId] = it }
 
         pc.createOffer(
             object : SdpAdapter("createOffer") {
@@ -353,7 +380,13 @@ class WebRtcTransport(
         roomAudio = null
         onRemoteVideo(null)
         onRemoteAudio(null)
+        remoteLevelChannel?.let { channel ->
+            channel.unregisterObserver()
+            channel.dispose()
+        }
+        remoteLevelChannel = null
         StreamLevel.reset()
+        DetectorLevel.reset()
         _state.value = TransportState.Idle
     }
 
@@ -372,6 +405,13 @@ class WebRtcTransport(
         val listener = listeners.remove(peerId) ?: return
         if (notify) send(peerId, SignalPayload.Stop)
 
+        // Il canale va liberato a mano: la connessione non lo fa per noi, e
+        // lasciarlo vuol dire perdere memoria nativa a ogni ascoltatore.
+        levelChannels.remove(peerId)?.let { channel ->
+            channel.close()
+            channel.dispose()
+        }
+
         listener.connection?.dispose()
         listener.connection = null
         listener.pending.clear()
@@ -379,6 +419,45 @@ class WebRtcTransport(
         refreshTalkBack()
         releaseCameraIfUnused()
         refreshListeners()
+    }
+
+    override fun publishLevel(levelDb: Double, thresholdDb: Double) {
+        if (levelChannels.isEmpty()) return
+        val text = JSONObject().put("levelDb", levelDb).put("thresholdDb", thresholdDb).toString()
+
+        for (channel in levelChannels.values) {
+            if (channel.state() != DataChannel.State.OPEN) continue
+            // Un canale chiuso dalle coroutine mentre questo ciclo lo stava
+            // usando: il livello successivo andra' agli altri, e questo e' tutto.
+            runCatching {
+                channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false))
+            }
+        }
+    }
+
+    /** Il Parent legge il livello del rilevatore dal canale che il Nursery ha aperto. */
+    private fun receiveLevel(channel: DataChannel) {
+        remoteLevelChannel?.let { old ->
+            old.unregisterObserver()
+            old.dispose()
+        }
+        remoteLevelChannel = channel
+
+        channel.registerObserver(object : DataChannel.Observer {
+            override fun onBufferedAmountChange(previousAmount: Long) = Unit
+            override fun onStateChange() = Unit
+
+            override fun onMessage(buffer: DataChannel.Buffer) {
+                val bytes = ByteArray(buffer.data.remaining())
+                buffer.data.get(bytes)
+                try {
+                    val json = JSONObject(String(bytes))
+                    DetectorLevel.push(json.getDouble("levelDb"), json.getDouble("thresholdDb"))
+                } catch (e: JSONException) {
+                    Log.w(TAG, "livello non leggibile: ${e.message}")
+                }
+            }
+        })
     }
 
     /** Stacca il sink dalla traccia remota, se ce n'e' uno attaccato. */
@@ -539,7 +618,9 @@ class WebRtcTransport(
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
         override fun onAddStream(stream: MediaStream) = Unit
         override fun onRemoveStream(stream: MediaStream) = Unit
-        override fun onDataChannel(channel: DataChannel) = Unit
+        override fun onDataChannel(channel: DataChannel) {
+            if (role == Role.PARENT && channel.label() == LEVEL_CHANNEL) receiveLevel(channel)
+        }
         override fun onRenegotiationNeeded() = Unit
         override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) = Unit
     }
@@ -562,6 +643,7 @@ class WebRtcTransport(
         val DIRECTIONS = setOf("sendrecv", "sendonly", "recvonly", "inactive")
         const val TAG = "CryLogStream"
         const val STREAM_ID = "crylog"
+        const val LEVEL_CHANNEL = "level"
         const val BUSY_REASON = "Il Nursery Node sta già trasmettendo al massimo dei dispositivi"
 
         /**
