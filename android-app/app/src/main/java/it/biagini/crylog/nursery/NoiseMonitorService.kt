@@ -137,6 +137,11 @@ class NoiseMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // "Interrompi" dalla notifica e' una richiesta come il pulsante
+            // nell'app. Senza, onDestroy lo prendeva per un servizio morto da
+            // solo: avviso di sorveglianza interrotta su questo telefono,
+            // allarme ai Parent Node e ripartenza alla prossima apertura.
+            store.armed = false
             stopSelf()
             return START_NOT_STICKY
         }
@@ -252,7 +257,9 @@ class NoiseMonitorService : Service() {
         scope.launch { transport?.stop() }
         transport = null
         NoiseMonitor.setArmed(false)
-        client.disconnect()
+        // Con `armed` spento qualcuno ha chiesto di smettere, e l'Hub deve
+        // saperlo: per i Parent Node e' un avviso, non un allarme.
+        client.disconnect(if (store.armed) 1000 else HubProtocol.CLOSE_MONITORING_STOPPED)
         scope.cancel()
         super.onDestroy()
     }

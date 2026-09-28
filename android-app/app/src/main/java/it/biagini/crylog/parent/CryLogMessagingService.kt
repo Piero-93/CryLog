@@ -27,6 +27,7 @@ package it.biagini.crylog.parent
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.Role
 import it.biagini.crylog.hub.DeviceStore
 import kotlinx.coroutines.CoroutineScope
@@ -73,7 +74,13 @@ class CryLogMessagingService : FirebaseMessagingService() {
                 val nurseryId = message.data["nurseryId"] ?: return
                 if (!SeenEvents.markSeen("offline:$nurseryId")) return
 
-                AlertNotifier(this).notifyNurseryGone(message.data["reason"])
+                val reason = message.data["reason"]
+                if (reason == HubProtocol.REASON_STOPPED) {
+                    AlertNotifier(this).notifyNurseryStopped()
+                    return
+                }
+
+                AlertNotifier(this).notifyNurseryGone(reason)
                 Alerter(applicationContext, alertScope).alert(
                     vibrate = store.vibrateOnAlert,
                     flash = store.flashOnAlert,

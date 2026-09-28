@@ -17,6 +17,13 @@
 
 export const ROLES = ['nursery', 'parent']
 
+// Il codice con cui un Nursery Node chiude quando qualcuno ha premuto
+// "Interrompi". Una chiusura normale non basta a dirlo: l'app la usa anche per
+// riconnettersi. Se il frame non arriva, perche' la rete e' gia' caduta,
+// resta il timeout e con lui l'allarme: sbagliare costa un avviso di troppo,
+// mai uno di meno.
+export const CLOSE_MONITORING_STOPPED = 4001
+
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v)
 
 export function parseClientMessage(raw) {

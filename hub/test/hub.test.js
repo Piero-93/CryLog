@@ -87,7 +87,7 @@ const connect = (token) => new Promise((resolve, reject) => {
   ws.addEventListener('error', () => reject(new Error('connessione rifiutata')))
   ws.addEventListener('open', () => resolve({
     send: (message) => ws.send(JSON.stringify(message)),
-    close: () => ws.close(),
+    close: (code) => ws.close(code),
     next: (type, timeoutMs = 3000) => new Promise((res, rej) => {
       const queued = inbox.find((m) => m.type === type)
       if (queued) {
@@ -192,6 +192,25 @@ test('la disconnessione di un Nursery Node avvisa i Parent Node', async () => {
   const offline = await parentWs.next('nursery-offline')
   assert.equal(offline.nurseryId, nursery.deviceId)
   assert.equal(offline.reason, 'disconnected')
+  parentWs.close()
+})
+
+test('un Nursery Node fermato a mano lo dice ai Parent Node', async () => {
+  const nursery = await pair('nursery', 'Cameretta fermata')
+  const parent = await pair('parent', 'Telefono fermato')
+
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  const nurseryWs = await connect(nursery.token)
+  await nurseryWs.next('welcome')
+  await parentWs.next('nursery-online')
+
+  nurseryWs.close(4001)
+
+  const offline = await parentWs.next('nursery-offline')
+  assert.equal(offline.nurseryId, nursery.deviceId)
+  assert.equal(offline.reason, 'stopped')
   parentWs.close()
 })
 

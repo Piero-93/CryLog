@@ -69,7 +69,8 @@ you can read with `sqlite3`.
   nursery's microphone and camera are opened once and shared between them.
 - **Never an ambiguous silence.** If a stream dies, the Parent Node retries and then raises an
   audible alarm. If the Nursery Node stops answering, the Hub tells every Parent Node — with the
-  reason, `disconnected` or `timeout`.
+  reason, `disconnected` or `timeout`. Stopping it by hand is still announced, as `stopped`, with
+  a calm notice instead of the alarm.
 - **Push notifications** so an alert reaches a phone whose app is closed and whose screen is off.
   Optional, and the only place CryLog touches a third party.
 - **Video is always optional**, at two independent levels: globally on the Nursery Node
@@ -411,7 +412,7 @@ And from the Hub:
 |---|---|
 | `welcome` | on connect: `deviceId`, `role`, `name`, `serverTime` |
 | `noise` | a noise event, fanned out to every Parent Node |
-| `nursery-offline` | with `reason`: `disconnected` on a clean close, `timeout` from the watchdog |
+| `nursery-offline` | with `reason`: `disconnected` on a clean close, `timeout` from the watchdog, `stopped` when the Nursery Node closes with code 4001 because someone stopped it |
 | `nursery-online` | it came back |
 | `signal` | routed from another device, with `from` and `fromName` |
 | `signal-undelivered` | the recipient was unreachable — whoever asked for the stream has to know |

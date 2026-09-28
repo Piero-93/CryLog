@@ -130,6 +130,36 @@ class AlertNotifier(private val context: Context) {
         )
     }
 
+    /**
+     * Il Nursery Node e' stato fermato a mano.
+     *
+     * Va detto lo stesso, perche' da ora nessuno sorveglia, ma senza il tono
+     * di un guasto: chi l'ha fermato lo sa, e un allarme ogni volta che si
+     * spegne il monitoraggio insegnerebbe a ignorare gli allarmi veri. Usa
+     * l'id dell'allarme, cosi' sparisce anche lei quando il Nursery torna.
+     */
+    fun notifyNurseryStopped() {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        ensureCalmChannel(manager)
+        val open = PendingIntent.getActivity(
+            context,
+            1,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        manager.notify(
+            GONE_NOTIFICATION_ID,
+            Notification.Builder(context, CALM_CHANNEL_ID)
+                .setContentTitle(context.getString(R.string.nursery_stopped_title))
+                .setContentText(context.getString(R.string.nursery_stopped_text))
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .build(),
+        )
+    }
+
     /** Quando il Nursery Node torna, l'allarme non ha più ragione di esistere. */
     fun clearNurseryGone() {
         context.getSystemService(NotificationManager::class.java)?.cancel(GONE_NOTIFICATION_ID)
@@ -194,6 +224,22 @@ class AlertNotifier(private val context: Context) {
         )
     }
 
+    private fun ensureCalmChannel(manager: NotificationManager) {
+        if (manager.getNotificationChannel(CALM_CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CALM_CHANNEL_ID,
+                context.getString(R.string.channel_nursery_stopped),
+                // Si sente, ma non vibra e non buca il Non disturbare: e'
+                // un'informazione, non un'emergenza.
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = context.getString(R.string.channel_nursery_stopped_description)
+                enableVibration(false)
+            },
+        )
+    }
+
     private fun ensureChannel(manager: NotificationManager) {
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
 
@@ -214,6 +260,7 @@ class AlertNotifier(private val context: Context) {
         const val CHANNEL_ID = "alert"
         const val GONE_NOTIFICATION_ID = 3
         const val STATUS_CHANNEL_ID = "status"
+        const val CALM_CHANNEL_ID = "nursery-stopped"
         const val WATCHING_NOTIFICATION_ID = 4
     }
 }

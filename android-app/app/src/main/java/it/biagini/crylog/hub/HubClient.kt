@@ -354,22 +354,23 @@ class HubClient(private val scope: CoroutineScope) {
 
     fun send(payload: String): Boolean = synchronized(lock) { socket }?.send(payload) ?: false
 
-    fun disconnect() = synchronized(lock) { disconnectLocked() }
+    fun disconnect(code: Int = NORMAL_CLOSURE) = synchronized(lock) { disconnectLocked(code) }
 
-    private fun disconnectLocked() {
+    private fun disconnectLocked(code: Int = NORMAL_CLOSURE) {
         closedByUs = true
         // I callback ancora in viaggio del socket che si chiude non devono
         // poter programmare una riconnessione.
         sessionId++
         reconnectJob?.cancel()
         reconnectJob = null
-        socket?.close(1000, "chiusura richiesta")
+        socket?.close(code, "chiusura richiesta")
         socket = null
         _state.value = ConnectionState.Disconnected
     }
 
     private companion object {
         const val TAG = "CryLogHub"
+        const val NORMAL_CLOSURE = 1000
         const val BASE_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
     }

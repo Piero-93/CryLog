@@ -400,15 +400,21 @@ class ListenService : Service() {
             is HubMessage.NurseryOffline -> {
                 if (!NurseryChoice.concerns(store.preferredNurseryId, message.nurseryId)) return
                 Log.w(TAG, "nursery offline (${message.reason}): chiudo la sessione")
-                // Nessuno sta più sorvegliando: è la cosa più importante che
-                // questo sistema possa dire, e va detta suonando.
+                val stopped = message.reason == HubProtocol.REASON_STOPPED
                 ContinuousListening.setHealth(ContinuousListening.Health.NURSERY_GONE)
-                startAlarm()
+                // Nessuno sta più sorvegliando: è la cosa più importante che
+                // questo sistema possa dire, e va detta suonando. Salvo quando
+                // l'ha fermato qualcuno, che non e' un guasto da svegliare.
+                if (!stopped) startAlarm()
                 updateNotification()
                 notifier.clearWatching()
                 if (SeenEvents.markSeen("offline:${message.nurseryId}")) {
-                    notifier.notifyNurseryGone(message.reason)
-                    alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+                    if (stopped) {
+                        notifier.notifyNurseryStopped()
+                    } else {
+                        notifier.notifyNurseryGone(message.reason)
+                        alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
+                    }
                 }
                 // Sparito il Nursery Node non c'è sessione da riaprire, e
                 // insistere riempirebbe i log di tentativi senza destinatario.
