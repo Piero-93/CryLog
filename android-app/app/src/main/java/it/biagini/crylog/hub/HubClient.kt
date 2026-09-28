@@ -24,6 +24,7 @@
 
 package it.biagini.crylog.hub
 
+import android.util.Log
 import it.biagini.crylog.core.NurseryInfo
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
@@ -279,7 +280,12 @@ class HubClient(private val scope: CoroutineScope) {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                HubProtocol.parse(text)?.let { scope.launch { _messages.emit(it) } }
+                val message = HubProtocol.parse(text) ?: return
+                // Qui e non in chi ascolta: un rifiuto dell'Hub riguarda un
+                // messaggio che qualcuno ha mandato credendolo buono, e senza
+                // una riga nel log restava invisibile a chiunque.
+                if (message is HubMessage.Failure) Log.w(TAG, "l'Hub ha rifiutato un messaggio: ${message.code}")
+                scope.launch { _messages.emit(message) }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -324,6 +330,7 @@ class HubClient(private val scope: CoroutineScope) {
     }
 
     private companion object {
+        const val TAG = "CryLogHub"
         const val BASE_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
     }
