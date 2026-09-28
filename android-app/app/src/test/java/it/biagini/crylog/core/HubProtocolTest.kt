@@ -180,4 +180,55 @@ class HubProtocolTest {
         assertNull(Role.fromWireName(null))
         assertEquals("nursery", Role.NURSERY.wireName)
     }
+
+    @Test
+    fun `le impostazioni di un Nursery Node vengono interpretate`() {
+        val message = HubProtocol.parse(
+            """{"type":"detection","nurseryId":"n1","nurseryName":"Cameretta","thresholdDb":-30,"minDurationMs":500,"cooldownMs":60000,"changedBy":"Poco F5"}""",
+        )
+
+        assertEquals(
+            HubMessage.Detection("n1", "Cameretta", DetectionSettings(-30.0, 500, 60_000), changedBy = "Poco F5"),
+            message,
+        )
+    }
+
+    @Test
+    fun `le impostazioni senza autore hanno changedBy nullo`() {
+        val message = HubProtocol.parse(
+            """{"type":"detection","nurseryId":"n1","thresholdDb":-30,"minDurationMs":500,"cooldownMs":60000,"changedBy":null}""",
+        ) as HubMessage.Detection
+
+        assertNull(message.changedBy)
+    }
+
+    @Test
+    fun `una richiesta di cambio viene interpretata`() {
+        val message = HubProtocol.parse(
+            """{"type":"configure","from":"p1","fromName":"Poco F5","thresholdDb":-40.5,"minDurationMs":1500,"cooldownMs":300000}""",
+        )
+
+        assertEquals(
+            HubMessage.Configure("p1", "Poco F5", DetectionSettings(-40.5, 1_500, 300_000)),
+            message,
+        )
+    }
+
+    @Test
+    fun `annuncio e richiesta hanno il formato che l'Hub valida`() {
+        val settings = DetectionSettings(-30.0, 500, 60_000)
+
+        val announced = JSONObject(HubProtocol.detection(settings, changedBy = "Poco F5"))
+        assertEquals("detection", announced.getString("type"))
+        assertEquals(-30.0, announced.getDouble("thresholdDb"), 0.0)
+        assertEquals(500L, announced.getLong("minDurationMs"))
+        assertEquals(60_000L, announced.getLong("cooldownMs"))
+        assertEquals("Poco F5", announced.getString("changedBy"))
+        assertTrue(!JSONObject(HubProtocol.detection(settings)).has("changedBy"))
+
+        val request = JSONObject(HubProtocol.configure("n1", settings))
+        assertEquals("configure", request.getString("type"))
+        assertEquals("n1", request.getString("to"))
+        assertEquals(1_500L, JSONObject(HubProtocol.configure("n1", settings.copy(minDurationMs = 1_500))).getLong("minDurationMs"))
+    }
 }

@@ -29,6 +29,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import it.biagini.crylog.core.ConnectionState
+import it.biagini.crylog.core.DetectionSettings
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.NurseryChoice
@@ -113,6 +114,8 @@ sealed interface UiState {
          */
         val preferredNurseryId: String? = null,
         val stream: TransportState = TransportState.Idle,
+        /** Le impostazioni di rilevamento annunciate da ciascun Nursery Node collegato. */
+        val detections: Map<String, DetectionSettings> = emptyMap(),
     ) : UiState
 }
 
@@ -260,6 +263,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onMessage(message: HubMessage, alerts: Boolean) {
         handleAlert(message, alerts)
+
+        // Uno stato, non un evento: aggiorna i cursori e non va in cronologia.
+        if (message is HubMessage.Detection) {
+            _uiState.update { current ->
+                if (current !is UiState.Session) return@update current
+                current.copy(detections = current.detections + (message.nurseryId to message.settings))
+            }
+            return
+        }
 
         // Il signaling è traffico tecnico fra i due telefoni: non ha nulla da
         // dire a chi guarda la cronologia.
@@ -465,8 +477,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // continuato a offrire "Ascolta" verso un Nursery Node sparito.
                 _uiState.update { current ->
                     if (current !is UiState.Session) return@update current
-                    if (current.nurseryId != message.nurseryId) return@update current
-                    current.copy(nurseryId = null, nurseryName = null)
+                    // Sparito il Nursery, le sue impostazioni non si possono
+                    // piu' cambiare: i cursori non devono restare li' a fingere.
+                    val detections = current.detections - message.nurseryId
+                    if (current.nurseryId != message.nurseryId) return@update current.copy(detections = detections)
+                    current.copy(nurseryId = null, nurseryName = null, detections = detections)
                 }
 
                 if (!alerts) return
@@ -697,6 +712,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setFlash(enabled: Boolean) { store.flashOnAlert = enabled }
+
+    /**
+     * Chiede al Nursery Node che si ascolta di regolare il rilevamento.
+     *
+     * Passa dalla connessione di chi la possiede: con l'ascolto continuo acceso
+     * e' del servizio, e aprirne un'altra qui lo scollegherebbe.
+     */
+    fun configureDetection(settings: DetectionSettings) {
+        val nurseryId = (_uiState.value as? UiState.Session)?.nurseryId ?: return
+        val payload = HubProtocol.configure(nurseryId, settings)
+        val sent = if (store.continuousListening) ContinuousListening.send(payload) else client.send(payload)
+        if (!sent) Log.w(TAG, "regolazione del rilevamento non inviata: connessione chiusa")
+    }
 
     val insistOnAlert: Boolean get() = store.insistOnAlert
 

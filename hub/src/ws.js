@@ -22,6 +22,8 @@ import { noisePayload, offlinePayload } from './fcm.js'
 import { hashSecret, generateDeviceId } from './pairing.js'
 import {
   CLOSE_MONITORING_STOPPED,
+  configure,
+  detection,
   error,
   noiseEvent,
   nurseryOffline,
@@ -134,7 +136,11 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
     if (device.role === 'parent') {
       for (const other of registry.listByRole('nursery')) {
         const nursery = db.findDeviceById(other.deviceId)
-        if (nursery) connection.send(nurseryOnline(nursery, other.connectedAt))
+        if (!nursery) continue
+        connection.send(nurseryOnline(nursery, other.connectedAt))
+        // Senza, i controlli del rilevamento restavano vuoti fino alla
+        // prossima modifica, che da un Parent non si puo' fare alla cieca.
+        if (other.detection) connection.send(detection(nursery, other.detection))
       }
     }
     log.info(`connesso: ${device.role} "${device.name}" (${device.id})`)
@@ -221,6 +227,46 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
         log.info(
           `evento rumore da "${device.name}": ${delivered} connessioni, ${targets.length} push`,
         )
+        break
+      }
+
+      case 'detection': {
+        if (device.role !== 'nursery') {
+          connection.send(error('role_not_allowed'))
+          return
+        }
+        // Tenuto in memoria e non nel database: vale finche' il Nursery Node
+        // e' collegato, e a ogni connessione lo riannuncia lui.
+        connection.detection = {
+          thresholdDb: message.thresholdDb,
+          minDurationMs: message.minDurationMs,
+          cooldownMs: message.cooldownMs,
+        }
+        registry.broadcastToRole('parent', detection(device, connection.detection, message.changedBy))
+        if (message.changedBy) {
+          log.info(`rilevamento di "${device.name}" cambiato da "${message.changedBy}"`)
+        }
+        break
+      }
+
+      case 'configure': {
+        if (device.role !== 'parent') {
+          connection.send(error('role_not_allowed'))
+          return
+        }
+        const nursery = db.findDeviceById(message.to)
+        if (!nursery || nursery.role !== 'nursery') {
+          connection.send(error('invalid_recipient'))
+          return
+        }
+        // Non si conserva per dopo: applicare una sensibilita' decisa ore
+        // prima, al ritorno del Nursery Node, sorprenderebbe chi e' in
+        // cameretta senza che nessuno se lo ricordi piu'.
+        const targets = registry.listByDevice(nursery.id)
+        const request = configure(device.id, device.name, message)
+        if (targets.filter((target) => target.send(request)).length === 0) {
+          connection.send(error('nursery_offline'))
+        }
         break
       }
 

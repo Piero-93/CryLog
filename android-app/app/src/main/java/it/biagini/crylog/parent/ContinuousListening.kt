@@ -112,4 +112,13 @@ object ContinuousListening {
     internal fun publish(message: HubMessage) {
         _messages.tryEmit(message)
     }
+
+    /**
+     * Quello che la UI vuole mandare all'Hub mentre la connessione e' del
+     * servizio. La consegna vera la fa il servizio, se il socket e' aperto.
+     */
+    private val _outbox = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    internal val outbox: SharedFlow<String> = _outbox.asSharedFlow()
+
+    fun send(payload: String): Boolean = _active.value && _outbox.tryEmit(payload)
 }

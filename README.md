@@ -405,6 +405,8 @@ Over the WebSocket, from a device:
 | `noise` | `startedAt`, optional `endedAt`, optional `peakDb` |
 | `signal` | `to`, `payload` — WebRTC offer, answer or ICE candidate, opaque to the Hub |
 | `fcm-token` | `token` |
+| `detection` | Nursery Node only: `thresholdDb` (−60 to −5), `minDurationMs` (100–10000), `cooldownMs` (5000–3600000), optional `changedBy` |
+| `configure` | Parent Node only: `to` (a Nursery Node) and the same three values |
 
 And from the Hub:
 
@@ -414,6 +416,8 @@ And from the Hub:
 | `noise` | a noise event, fanned out to every Parent Node |
 | `nursery-offline` | with `reason`: `disconnected` on a clean close, `timeout` from the watchdog, `stopped` when the Nursery Node closes with code 4001 because someone stopped it |
 | `nursery-online` | it came back |
+| `detection` | a Nursery Node's detection settings: when it announces them, and to a Parent Node on connect |
+| `configure` | to a Nursery Node: a Parent Node asks for new settings, with `from` and `fromName`. Not kept if the Nursery Node is offline; the sender gets `error` `nursery_offline` |
 | `signal` | routed from another device, with `from` and `fromName` |
 | `signal-undelivered` | the recipient was unreachable — whoever asked for the stream has to know |
 | `error` | a `code`, never a stack trace |

@@ -46,11 +46,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,6 +106,16 @@ fun NurseryScreen(
     var minDuration by rememberSaveable { mutableStateOf(viewModel.noiseMinDurationMs) }
     var cooldown by rememberSaveable { mutableStateOf(viewModel.noiseCooldownMs) }
     var audioOnly by rememberSaveable { mutableStateOf(viewModel.audioOnly) }
+
+    // Un Parent Node puo' cambiarle mentre la schermata e' aperta: i cursori
+    // devono seguirle, o mostrerebbero valori che il rilevatore non usa piu'.
+    val remoteChange by NoiseMonitor.remoteChange.collectAsStateWithLifecycle()
+    LaunchedEffect(remoteChange) {
+        val settings = remoteChange?.settings ?: return@LaunchedEffect
+        sensitivity = NoiseSensitivity.fromThresholdDb(settings.thresholdDb).toFloat()
+        minDuration = settings.minDurationMs
+        cooldown = settings.cooldownMs
+    }
     var cameraGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -236,35 +246,23 @@ fun NurseryScreen(
 
         CollapsibleSection("Rilevamento") {
             SettingsCard {
-                SettingRow(
-                    title = "Sensibilità",
-                    trailing = "${NoiseSensitivity.asPercent(sensitivity.toDouble())}%",
-                    description = "Se scattano falsi allarmi abbassala; se non sente il bambino alzala.",
-                ) {
-                    Slider(
-                        value = sensitivity,
-                        onValueChange = { sensitivity = it },
-                        onValueChangeFinished = {
-                            viewModel.setThreshold(NoiseSensitivity.toThresholdDb(sensitivity.toDouble()))
-                        },
-                        valueRange = 0f..1f,
+                remoteChange?.let { change ->
+                    Text(
+                        "Modificate da ${change.by}, ${formatMoment(change.at)}",
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
 
-                PresetSelector(
-                    title = "Ignora i rumori brevi",
-                    description = "Alzala se una porta che sbatte fa scattare l'avviso.",
-                    presets = MIN_DURATION_PRESETS,
-                    selectedMs = minDuration,
-                    onSelect = { minDuration = it; viewModel.setMinDuration(it) },
-                )
-
-                PresetSelector(
-                    title = "Avvisa al massimo ogni",
-                    description = "Evita decine di notifiche durante un pianto lungo.",
-                    presets = COOLDOWN_PRESETS,
-                    selectedMs = cooldown,
-                    onSelect = { cooldown = it; viewModel.setCooldown(it) },
+                DetectionControls(
+                    sensitivity = sensitivity,
+                    minDurationMs = minDuration,
+                    cooldownMs = cooldown,
+                    onSensitivityChange = { sensitivity = it },
+                    onSensitivityCommit = {
+                        viewModel.setThreshold(NoiseSensitivity.toThresholdDb(sensitivity.toDouble()))
+                    },
+                    onMinDuration = { minDuration = it; viewModel.setMinDuration(it) },
+                    onCooldown = { cooldown = it; viewModel.setCooldown(it) },
                 )
             }
         }
