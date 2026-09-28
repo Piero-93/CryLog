@@ -31,10 +31,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import it.biagini.crylog.core.NoiseSensitivity
 
 /**
  * Preset invece di millisecondi.
@@ -56,6 +58,53 @@ val COOLDOWN_PRESETS = listOf(
     Preset("1 min", 60_000L),
     Preset("5 min", 300_000L),
 )
+
+/**
+ * Le tre regolazioni del rilevamento, uguali sui due telefoni.
+ *
+ * Il Parent Node le mostra per il Nursery Node che ascolta: stesse parole e
+ * stessi cursori, perche' lo stesso valore deve leggersi allo stesso modo da
+ * chi e' in cameretta e da chi e' in salotto.
+ */
+@Composable
+fun DetectionControls(
+    sensitivity: Float,
+    minDurationMs: Long,
+    cooldownMs: Long,
+    onSensitivityChange: (Float) -> Unit,
+    onSensitivityCommit: () -> Unit,
+    onMinDuration: (Long) -> Unit,
+    onCooldown: (Long) -> Unit,
+) {
+    SettingRow(
+        title = "Sensibilità",
+        trailing = "${NoiseSensitivity.asPercent(sensitivity.toDouble())}%",
+        description = "Se scattano falsi allarmi abbassala; se non sente il bambino alzala.",
+    ) {
+        Slider(
+            value = sensitivity,
+            onValueChange = onSensitivityChange,
+            onValueChangeFinished = onSensitivityCommit,
+            valueRange = 0f..1f,
+        )
+    }
+
+    PresetSelector(
+        title = "Ignora i rumori brevi",
+        description = "Alzala se una porta che sbatte fa scattare l'avviso.",
+        presets = MIN_DURATION_PRESETS,
+        selectedMs = minDurationMs,
+        onSelect = onMinDuration,
+    )
+
+    PresetSelector(
+        title = "Avvisa al massimo ogni",
+        description = "Evita decine di notifiche durante un pianto lungo.",
+        presets = COOLDOWN_PRESETS,
+        selectedMs = cooldownMs,
+        onSelect = onCooldown,
+    )
+}
 
 @Composable
 fun PresetSelector(

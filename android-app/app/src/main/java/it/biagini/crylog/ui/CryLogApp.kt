@@ -89,6 +89,8 @@ import it.biagini.crylog.UiState
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
 import it.biagini.crylog.core.HubProtocol
+import it.biagini.crylog.core.DetectionSettings
+import it.biagini.crylog.core.NoiseSensitivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
 import it.biagini.crylog.parent.ContinuousListening
@@ -564,6 +566,17 @@ private fun SessionScreen(
             onTalkingChange = { on -> talking = on; viewModel.setTalking(on) },
         )
 
+        // Solo per il Nursery Node collegato: le impostazioni le conosce lui, e
+        // una richiesta verso un telefono spento andrebbe persa.
+        val detection = state.nurseryId?.let { state.detections[it] }
+        if (detection != null) {
+            RemoteDetection(
+                nurseryName = state.nurseryName.orEmpty(),
+                current = detection,
+                onChange = viewModel::configureDetection,
+            )
+        }
+
         CollapsibleSection("Avvisi") {
             SettingsCard {
                 SettingSwitch(
@@ -969,8 +982,55 @@ private fun ConnectionBanner(connection: ConnectionState, onReconnect: () -> Uni
     }
 }
 
+/**
+ * Il rilevamento del Nursery Node, regolato da qui.
+ *
+ * I cursori partono da quello che il Nursery annuncia e lo seguono: se lo
+ * cambia qualcun altro, in cameretta o da un altro Parent, si spostano anche
+ * qui. Ogni scelta manda tutte e tre le impostazioni, perche' l'Hub le vuole
+ * complete e perche' cosi' il Nursery non deve fondere niente.
+ */
+@Composable
+private fun RemoteDetection(
+    nurseryName: String,
+    current: DetectionSettings,
+    onChange: (DetectionSettings) -> Unit,
+) {
+    var sensitivity by remember { mutableStateOf(NoiseSensitivity.fromThresholdDb(current.thresholdDb).toFloat()) }
+    var minDuration by remember { mutableStateOf(current.minDurationMs) }
+    var cooldown by remember { mutableStateOf(current.cooldownMs) }
+
+    LaunchedEffect(current) {
+        sensitivity = NoiseSensitivity.fromThresholdDb(current.thresholdDb).toFloat()
+        minDuration = current.minDurationMs
+        cooldown = current.cooldownMs
+    }
+
+    fun send() = onChange(
+        DetectionSettings(
+            thresholdDb = NoiseSensitivity.toThresholdDb(sensitivity.toDouble()),
+            minDurationMs = minDuration,
+            cooldownMs = cooldown,
+        ),
+    )
+
+    CollapsibleSection("Rilevamento di $nurseryName") {
+        SettingsCard {
+            DetectionControls(
+                sensitivity = sensitivity,
+                minDurationMs = minDuration,
+                cooldownMs = cooldown,
+                onSensitivityChange = { sensitivity = it },
+                onSensitivityCommit = { send() },
+                onMinDuration = { minDuration = it; send() },
+                onCooldown = { cooldown = it; send() },
+            )
+        }
+    }
+}
+
 /** Solo ora e minuti se è di oggi, altrimenti anche il giorno. */
-private fun formatMoment(timestamp: Long): String {
+internal fun formatMoment(timestamp: Long): String {
     val moment = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
     val today = LocalDate.now(ZoneId.systemDefault())
 

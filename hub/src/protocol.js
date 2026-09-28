@@ -63,6 +63,25 @@ export function parseClientMessage(raw) {
     case 'signal':
       return parseSignal(msg)
 
+    // Il Nursery Node annuncia le sue impostazioni, e dopo un cambio da
+    // remoto dice anche chi l'ha chiesto.
+    case 'detection': {
+      const changedBy = msg.changedBy ?? null
+      if (changedBy !== null && (typeof changedBy !== 'string' || changedBy.length > 64)) {
+        return { ok: false, error: 'invalid_detection' }
+      }
+      return parseDetection(msg, { changedBy })
+    }
+
+    // Stessi valori, piu' il destinatario: un Parent Node che regola un
+    // Nursery Node deve dire quale.
+    case 'configure': {
+      if (typeof msg.to !== 'string' || msg.to.length === 0) {
+        return { ok: false, error: 'invalid_recipient' }
+      }
+      return parseDetection(msg, { type: 'configure', to: msg.to })
+    }
+
     case 'fcm-token': {
       if (typeof msg.token !== 'string' || msg.token.length === 0 || msg.token.length > 512) {
         return { ok: false, error: 'invalid_fcm_token' }
@@ -73,6 +92,32 @@ export function parseClientMessage(raw) {
     default:
       return { ok: false, error: 'unknown_type' }
   }
+}
+
+/**
+ * I limiti delle impostazioni di rilevamento.
+ *
+ * Sono quelli che l'app puo' produrre, con un po' di margine: l'Hub li
+ * controlla perche' un valore assurdo arrivato da un altro telefono — una
+ * soglia a zero, una pausa di un giorno — spegnerebbe gli avvisi in silenzio,
+ * e chi e' in cameretta non ha modo di accorgersene.
+ */
+export const DETECTION_LIMITS = {
+  thresholdDb: [-60, -5],
+  minDurationMs: [100, 10_000],
+  cooldownMs: [5_000, 3_600_000],
+}
+
+function parseDetection(msg, extra) {
+  const values = {}
+  for (const [key, [min, max]] of Object.entries(DETECTION_LIMITS)) {
+    const value = msg[key]
+    if (!isFiniteNumber(value) || value < min || value > max) {
+      return { ok: false, error: 'invalid_detection' }
+    }
+    values[key] = value
+  }
+  return { ok: true, message: { type: 'detection', ...extra, ...values } }
 }
 
 export const welcome = (device, serverTime) => ({
@@ -109,6 +154,32 @@ export const nurseryOnline = (nursery, at) => ({
 })
 
 export const error = (code) => ({ type: 'error', code })
+
+/**
+ * Le impostazioni correnti di un Nursery Node, per i Parent Node.
+ *
+ * [changedBy] e' il nome del Parent Node che le ha appena cambiate, o null se
+ * le ha regolate il Nursery stesso o se e' solo il loro stato.
+ */
+export const detection = (nursery, settings, changedBy = null) => ({
+  type: 'detection',
+  nurseryId: nursery.id,
+  nurseryName: nursery.name,
+  thresholdDb: settings.thresholdDb,
+  minDurationMs: settings.minDurationMs,
+  cooldownMs: settings.cooldownMs,
+  changedBy,
+})
+
+/** Una richiesta di cambio, per il Nursery Node: da chi arriva e cosa chiede. */
+export const configure = (fromDeviceId, fromName, settings) => ({
+  type: 'configure',
+  from: fromDeviceId,
+  fromName,
+  thresholdDb: settings.thresholdDb,
+  minDurationMs: settings.minDurationMs,
+  cooldownMs: settings.cooldownMs,
+})
 
 /**
  * Instradamento del signaling WebRTC.

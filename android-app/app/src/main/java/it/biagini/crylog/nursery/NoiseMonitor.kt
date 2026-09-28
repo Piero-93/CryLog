@@ -25,6 +25,7 @@
 package it.biagini.crylog.nursery
 
 import it.biagini.crylog.core.ConnectionState
+import it.biagini.crylog.core.DetectionSettings
 import it.biagini.crylog.core.NoiseEvent
 import it.biagini.crylog.core.TransportState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +104,23 @@ object NoiseMonitor {
         _history.value = FloatArray(HISTORY_SIZE) { i ->
             if (i < HISTORY_SIZE - 1) previous[i + 1] else db.toFloat()
         }
+    }
+
+    /** Un cambio di impostazioni arrivato da un Parent Node. */
+    data class RemoteChange(val settings: DetectionSettings, val by: String, val at: Long)
+
+    /**
+     * L'ultimo cambio arrivato da remoto.
+     *
+     * La schermata deve spostare i cursori e dire chi e' stato: chi e' in
+     * cameretta altrimenti vedrebbe il telefono diventare piu' o meno
+     * sensibile senza una ragione.
+     */
+    private val _remoteChange = MutableStateFlow<RemoteChange?>(null)
+    val remoteChange: StateFlow<RemoteChange?> = _remoteChange.asStateFlow()
+
+    internal fun setRemoteChange(change: RemoteChange) {
+        _remoteChange.value = change
     }
 
     internal fun setConnection(state: ConnectionState) {

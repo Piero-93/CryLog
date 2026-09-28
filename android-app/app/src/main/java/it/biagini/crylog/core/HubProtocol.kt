@@ -62,6 +62,26 @@ sealed interface HubMessage {
     data class Failure(val code: String) : HubMessage
 
     /**
+     * Le impostazioni di rilevamento di un Nursery Node.
+     *
+     * [changedBy] e' il Parent Node che le ha appena cambiate, o null se le ha
+     * regolate il Nursery stesso o se e' solo il loro stato attuale.
+     */
+    data class Detection(
+        val nurseryId: String,
+        val nurseryName: String,
+        val settings: DetectionSettings,
+        val changedBy: String?,
+    ) : HubMessage
+
+    /** Un Parent Node chiede al Nursery Node di regolare il rilevamento. */
+    data class Configure(
+        val from: String,
+        val fromName: String,
+        val settings: DetectionSettings,
+    ) : HubMessage
+
+    /**
      * Busta di signaling WebRTC.
      *
      * Il contenuto resta testo: l Hub non lo interpreta e nemmeno questo
@@ -148,6 +168,19 @@ object HubProtocol {
 
             "error" -> HubMessage.Failure(json.optString("code"))
 
+            "detection" -> HubMessage.Detection(
+                nurseryId = json.getString("nurseryId"),
+                nurseryName = json.optString("nurseryName"),
+                settings = json.detectionSettings(),
+                changedBy = if (json.isNull("changedBy")) null else json.optString("changedBy"),
+            )
+
+            "configure" -> HubMessage.Configure(
+                from = json.getString("from"),
+                fromName = json.optString("fromName"),
+                settings = json.detectionSettings(),
+            )
+
             else -> HubMessage.Unsupported(type)
         }
     } catch (_: JSONException) {
@@ -175,7 +208,32 @@ object HubProtocol {
 
     fun fcmToken(token: String): String =
         JSONObject().put("type", "fcm-token").put("token", token).toString()
+
+    fun detection(settings: DetectionSettings, changedBy: String? = null): String =
+        JSONObject()
+            .put("type", "detection")
+            .putSettings(settings)
+            .apply { changedBy?.let { put("changedBy", it) } }
+            .toString()
+
+    fun configure(to: String, settings: DetectionSettings): String =
+        JSONObject()
+            .put("type", "configure")
+            .put("to", to)
+            .putSettings(settings)
+            .toString()
 }
+
+private fun JSONObject.putSettings(settings: DetectionSettings): JSONObject =
+    put("thresholdDb", settings.thresholdDb)
+        .put("minDurationMs", settings.minDurationMs)
+        .put("cooldownMs", settings.cooldownMs)
+
+private fun JSONObject.detectionSettings(): DetectionSettings = DetectionSettings(
+    thresholdDb = getDouble("thresholdDb"),
+    minDurationMs = getLong("minDurationMs"),
+    cooldownMs = getLong("cooldownMs"),
+)
 
 private fun JSONObject.optLongOrNull(key: String): Long? =
     if (isNull(key)) null else optLong(key)

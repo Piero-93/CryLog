@@ -163,6 +163,12 @@ class ListenService : Service() {
         }
 
         scope.launch {
+            ContinuousListening.outbox.collect { payload ->
+                if (!client.send(payload)) Log.w(TAG, "messaggio della UI non inviato: connessione chiusa")
+            }
+        }
+
+        scope.launch {
             PushToken.renewed.collect { token ->
                 if (client.state.value is ConnectionState.Connected) PushToken.send(client, token)
             }

@@ -60,6 +60,19 @@ interface NoiseDetector {
 }
 
 /**
+ * Le tre regolazioni del rilevamento, cosi' come viaggiano fra i telefoni.
+ *
+ * La soglia e' in dBFS e non in "sensibilita'": e' il valore che il
+ * rilevatore usa davvero, e la traduzione per il cursore la fa ciascuna UI con
+ * [NoiseSensitivity], la stessa su entrambi i telefoni.
+ */
+data class DetectionSettings(
+    val thresholdDb: Double,
+    val minDurationMs: Long,
+    val cooldownMs: Long,
+)
+
+/**
  * Traduce fra quello che l'utente regola e quello che il rilevatore usa.
  *
  * Sono grandezze inverse: una soglia bassa scatta con poco rumore, quindi è

@@ -63,3 +63,38 @@ test('un token FCM viene accettato solo se plausibile', () => {
   assert.equal(parseClientMessage('{"type":"fcm-token","token":""}').error, 'invalid_fcm_token')
   assert.equal(parseClientMessage(JSON.stringify({ type: 'fcm-token', token: 'x'.repeat(513) })).error, 'invalid_fcm_token')
 })
+
+const SETTINGS = { thresholdDb: -30, minDurationMs: 500, cooldownMs: 60_000 }
+
+test('le impostazioni di rilevamento dentro i limiti vengono accettate', () => {
+  const result = parseClientMessage(JSON.stringify({ type: 'detection', ...SETTINGS }))
+  assert.deepEqual(result.message, { type: 'detection', changedBy: null, ...SETTINGS })
+})
+
+test('l\'annuncio dopo un cambio da remoto porta il nome di chi l\'ha chiesto', () => {
+  const result = parseClientMessage(JSON.stringify({ type: 'detection', changedBy: 'Poco F5', ...SETTINGS }))
+  assert.equal(result.message.changedBy, 'Poco F5')
+})
+
+test('impostazioni fuori dai limiti o mancanti vengono rifiutate', () => {
+  for (const bad of [
+    { ...SETTINGS, thresholdDb: 0 },
+    { ...SETTINGS, thresholdDb: -90 },
+    { ...SETTINGS, minDurationMs: 50 },
+    { ...SETTINGS, cooldownMs: 86_400_000 },
+    { thresholdDb: -30, minDurationMs: 500 },
+    { ...SETTINGS, cooldownMs: '60000' },
+  ]) {
+    assert.equal(parseClientMessage(JSON.stringify({ type: 'detection', ...bad })).error, 'invalid_detection')
+    assert.equal(parseClientMessage(JSON.stringify({ type: 'configure', to: 'n1', ...bad })).error, 'invalid_detection')
+  }
+})
+
+test('una richiesta di cambio senza destinatario viene rifiutata', () => {
+  assert.equal(parseClientMessage(JSON.stringify({ type: 'configure', ...SETTINGS })).error, 'invalid_recipient')
+})
+
+test('una richiesta di cambio valida porta destinatario e valori', () => {
+  const result = parseClientMessage(JSON.stringify({ type: 'configure', to: 'n1', ...SETTINGS }))
+  assert.deepEqual(result.message, { type: 'configure', to: 'n1', ...SETTINGS })
+})

@@ -41,6 +41,7 @@ import android.util.Log
 import it.biagini.crylog.MainActivity
 import it.biagini.crylog.R
 import it.biagini.crylog.core.ConnectionState
+import it.biagini.crylog.core.DetectionSettings
 import it.biagini.crylog.core.HubProtocol
 import it.biagini.crylog.core.NoiseDetector
 import it.biagini.crylog.core.HubMessage
@@ -124,8 +125,13 @@ class NoiseMonitorService : Service() {
 
         scope.launch {
             client.messages.collect { message ->
-                if (message is HubMessage.Signal) {
-                    transport?.onSignal(message.from, message.payload)
+                when (message) {
+                    is HubMessage.Signal -> transport?.onSignal(message.from, message.payload)
+                    // A ogni connessione: l'Hub le tiene solo in memoria, e i
+                    // Parent Node che arrivano dopo le leggono da lui.
+                    is HubMessage.Welcome -> announceDetection()
+                    is HubMessage.Configure -> applyRemote(message)
+                    else -> Unit
                 }
             }
         }
@@ -165,6 +171,7 @@ class NoiseMonitorService : Service() {
         if (intent?.action == ACTION_RELOAD) {
             if (running) {
                 detector = buildDetector()
+                announceDetection()
                 Log.i(TAG, "impostazioni ricaricate senza interrompere l'ascolto")
                 return START_STICKY
             }
@@ -234,6 +241,35 @@ class NoiseMonitorService : Service() {
 
         // START_STICKY: se il sistema ci uccide per memoria, deve riprovare.
         return START_STICKY
+    }
+
+    private fun currentDetection() = DetectionSettings(
+        thresholdDb = store.noiseThresholdDb,
+        minDurationMs = store.noiseMinDurationMs,
+        cooldownMs = store.noiseCooldownMs,
+    )
+
+    private fun announceDetection(changedBy: String? = null) {
+        client.send(HubProtocol.detection(currentDetection(), changedBy))
+    }
+
+    /**
+     * Applica le impostazioni chieste da un Parent Node.
+     *
+     * Le salva come se le avesse regolate chi e' in cameretta: sono le stesse
+     * impostazioni, e al prossimo avvio devono essere ancora queste.
+     */
+    private fun applyRemote(request: HubMessage.Configure) {
+        if (!running) return
+        store.noiseThresholdDb = request.settings.thresholdDb
+        store.noiseMinDurationMs = request.settings.minDurationMs
+        store.noiseCooldownMs = request.settings.cooldownMs
+        detector = buildDetector()
+        NoiseMonitor.setRemoteChange(
+            NoiseMonitor.RemoteChange(request.settings, request.fromName, System.currentTimeMillis()),
+        )
+        announceDetection(changedBy = request.fromName)
+        Log.i(TAG, "rilevamento regolato da ${request.fromName}: ${request.settings}")
     }
 
     private fun buildDetector(): NoiseDetector = RmsNoiseDetector(
