@@ -87,12 +87,12 @@ class CryLogMessagingService : FirebaseMessagingService() {
 
     /**
      * Il token cambia da solo: reinstallazione, ripristino da backup, pulizia
-     * dei dati. Va salvato subito, e l'app lo consegnerà all'Hub appena
-     * riesce a parlargli.
+     * dei dati. Va salvato subito: se c'e' una connessione aperta parte
+     * adesso, altrimenti alla prossima.
      */
     override fun onNewToken(token: String) {
-        DeviceStore(this).pendingFcmToken = token
-        Log.i(TAG, "nuovo token FCM, in attesa di consegnarlo all'Hub")
+        Log.i(TAG, "nuovo token FCM")
+        PushToken.onRenewed(DeviceStore(this), token)
     }
 
     private companion object {

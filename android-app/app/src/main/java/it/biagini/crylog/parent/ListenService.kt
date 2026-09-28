@@ -145,7 +145,6 @@ class ListenService : Service() {
                     // Riconnessi all'Hub: la vecchia sessione media non esiste
                     // più, va richiesta da capo al prossimo giro di watchdog.
                     silentSince = System.currentTimeMillis()
-                    deliverFcmToken()
                 }
                 updateNotification()
             }
@@ -153,8 +152,19 @@ class ListenService : Service() {
 
         scope.launch {
             client.messages.collect { message ->
+                // Con l'ascolto continuo acceso la connessione e' qui: senza
+                // questo il token di un'app appena installata non arriverebbe
+                // finche' qualcuno non spegne l'ascolto, cioe' proprio quando
+                // le push servono di meno.
+                if (message is HubMessage.Welcome) PushToken.deliver(store, client)
                 ContinuousListening.publish(message)
                 handle(message)
+            }
+        }
+
+        scope.launch {
+            PushToken.renewed.collect { token ->
+                if (client.state.value is ConnectionState.Connected) PushToken.send(client, token)
             }
         }
 
@@ -346,22 +356,6 @@ class ListenService : Service() {
         // costerebbe la batteria di entrambi i telefoni.
         transport?.start(StreamRequest(peerId = peer, video = false))
             ?.onFailure { Log.e(TAG, "riapertura fallita: ${it.message}") }
-    }
-
-    /**
-     * Consegna il token FCM se il ViewModel non ha potuto farlo.
-     *
-     * Con l'ascolto continuo acceso la connessione e qui, e senza questo il
-     * token di un'app appena installata resterebbe in sospeso finche qualcuno
-     * non spegne l'ascolto — cioe proprio quando le push servono di meno.
-     */
-    private fun deliverFcmToken() {
-        val token = store.pendingFcmToken ?: return
-        if (token == store.sentFcmToken) return
-        if (client.send(HubProtocol.fcmToken(token))) {
-            store.sentFcmToken = token
-            Log.i(TAG, "token FCM consegnato all'Hub")
-        }
     }
 
     private fun handle(message: HubMessage) {

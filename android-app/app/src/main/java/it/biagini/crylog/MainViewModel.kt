@@ -26,7 +26,6 @@ package it.biagini.crylog
 
 import android.app.Application
 import android.util.Log
-import com.google.firebase.messaging.FirebaseMessaging
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import it.biagini.crylog.core.ConnectionState
@@ -48,6 +47,7 @@ import it.biagini.crylog.parent.AlertNotifier
 import it.biagini.crylog.parent.Alerter
 import it.biagini.crylog.parent.ContinuousListening
 import it.biagini.crylog.parent.ListenService
+import it.biagini.crylog.parent.PushToken
 import it.biagini.crylog.parent.RemoteVideo
 import it.biagini.crylog.parent.SeenEvents
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -204,7 +204,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ContinuousListening.connection.collect { if (store.continuousListening) onConnection(it) }
         }
         viewModelScope.launch {
-            client.messages.collect { if (!store.continuousListening) onMessage(it, alerts = true) }
+            client.messages.collect {
+                if (store.continuousListening) return@collect
+                // Dopo il welcome e non all'apertura del socket: e' l'Hub a dire
+                // che ruolo ha questo telefono, e il token serve solo al Parent.
+                if (it is HubMessage.Welcome && it.role == Role.PARENT) {
+                    PushToken.deliver(store, client)
+                }
+                onMessage(it, alerts = true)
+            }
+        }
+        viewModelScope.launch {
+            PushToken.renewed.collect { token ->
+                if (!store.continuousListening && store.role == Role.PARENT &&
+                    client.state.value is ConnectionState.Connected
+                ) {
+                    PushToken.send(client, token)
+                }
+            }
         }
         viewModelScope.launch {
             // Gli avvisi li ha gia dati il servizio: rifarli qui li sdoppierebbe
@@ -219,7 +236,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // servizio: aprirne una seconda qui scollegherebbe proprio quella
             // che deve restare in piedi.
             if (!store.continuousListening) connect()
-            requestFcmToken()
             rebuildTransport()
         }
 
@@ -234,7 +250,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (connection is ConnectionState.Failed && connection.unauthorized) resetPairing()
 
         if (connection is ConnectionState.Connected) {
-            deliverFcmToken()
             loadHistory()
         } else {
             // Persa la connessione non sappiamo più se qualcuno stia
@@ -324,7 +339,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         connection = ConnectionState.Disconnected,
                     )
                     connect()
-                    requestFcmToken()
                 }
                 .onFailure { failure ->
                     val reason = failure.message ?: "pairing fallito"
@@ -574,39 +588,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure { Log.w(TAG, "cronologia non caricata: ${it.message}") }
-        }
-    }
-
-    // --- Notifiche push ---
-
-    /**
-     * Chiede a Firebase il token corrente.
-     *
-     * Fallisce senza rumore se il progetto Firebase non è configurato: le push
-     * sono opzionali, e l'app deve restare utilizzabile con le sole notifiche
-     * in tempo reale.
-     */
-    private fun requestFcmToken() {
-        if (store.role != Role.PARENT) return
-
-        runCatching {
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                store.pendingFcmToken = token
-                deliverFcmToken()
-            }
-        }.onFailure {
-            Log.i(TAG, "Firebase non configurato: niente notifiche in background")
-        }
-    }
-
-    /** Il token vale solo se l'Hub lo conosce, quindi si riprova a ogni connessione. */
-    private fun deliverFcmToken() {
-        val token = store.pendingFcmToken ?: return
-        if (token == store.sentFcmToken) return
-
-        if (client.send(HubProtocol.fcmToken(token))) {
-            store.sentFcmToken = token
-            Log.i(TAG, "token FCM consegnato all'Hub")
         }
     }
 
