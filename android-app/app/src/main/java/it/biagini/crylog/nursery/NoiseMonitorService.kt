@@ -36,6 +36,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import it.biagini.crylog.MainActivity
 import it.biagini.crylog.R
@@ -69,6 +70,7 @@ class NoiseMonitorService : Service() {
     private lateinit var client: HubClient
     private lateinit var detector: NoiseDetector
     private var audio: AudioSource? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var transport: StreamTransport? = null
 
     /**
@@ -210,6 +212,7 @@ class NoiseMonitorService : Service() {
         }
 
         audio = source
+        acquireWakeLock()
         NoiseMonitor.setArmed(true)
         // Ripreso il lavoro, l'avviso di sorveglianza ferma non descrive più la
         // realtà. Qui e non in chi chiama: questo è l'unico punto che sa di
@@ -244,6 +247,8 @@ class NoiseMonitorService : Service() {
         }
         audio?.stop()
         audio = null
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
         scope.launch { transport?.stop() }
         transport = null
         NoiseMonitor.setArmed(false)
@@ -253,6 +258,22 @@ class NoiseMonitorService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Tiene sveglia la CPU finche' si ascolta.
+     *
+     * Il servizio in foreground protegge dall'essere uccisi, non dal sonno: a
+     * schermo spento la CPU puo' fermarsi, un processo fermo non risponde ai
+     * ping, e dopo novanta secondi l'Hub lo da' per sparito.
+     */
+    private fun acquireWakeLock() {
+        if (wakeLock != null) return
+        val power = getSystemService(PowerManager::class.java)
+        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
 
     /**
      * Dichiara ad Android che la fotocamera è in uso, e solo per il tempo in cui
@@ -321,6 +342,7 @@ class NoiseMonitorService : Service() {
         private const val TAG = "CryLogMonitor"
         private const val CHANNEL_ID = "monitoring"
         private const val NOTIFICATION_ID = 1
+        private const val WAKE_LOCK_TAG = "crylog:monitoring"
         const val ACTION_STOP = "it.biagini.crylog.STOP_MONITORING"
         const val ACTION_RELOAD = "it.biagini.crylog.RELOAD_SETTINGS"
 

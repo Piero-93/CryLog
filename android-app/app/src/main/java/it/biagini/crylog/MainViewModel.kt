@@ -338,7 +338,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         deviceName = device.name,
                         connection = ConnectionState.Disconnected,
                     )
-                    connect()
+                    // Solo il Parent: la connessione del Nursery Node e' del suo
+                    // servizio. Aprirne una anche qui dava all'Hub due socket
+                    // dello stesso telefono, e con il monitoraggio fermo quello
+                    // della UI lo teneva "online" per tutti i Parent Node.
+                    if (device.role == Role.PARENT) connect()
                 }
                 .onFailure { failure ->
                     val reason = failure.message ?: "pairing fallito"

@@ -64,7 +64,7 @@ fun AutostartCard(modifier: Modifier = Modifier) {
     val store = DeviceStore(context)
 
     var dismissed by rememberSaveable { mutableStateOf(store.autostartNoticeSeen) }
-    if (dismissed || !needsAutostart()) return
+    if (dismissed || !isXiaomi()) return
 
     NoticeCard(
         text = "Su questo telefono gli avvisi ad app chiusa arrivano solo se CryLog " +
@@ -88,7 +88,7 @@ fun AutostartCard(modifier: Modifier = Modifier) {
 }
 
 /** I produttori che spengono le app di loro iniziativa. */
-private fun needsAutostart(): Boolean {
+internal fun isXiaomi(): Boolean {
     val brand = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
     return listOf("xiaomi", "redmi", "poco").any { it in brand }
 }

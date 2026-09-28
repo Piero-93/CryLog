@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Ascolto continuo: la CPU deve restare sveglia a schermo spento. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Per chiedere l'esenzione dall'ottimizzazione della batteria: senza,
+         a schermo spento il sistema puo' congelare il processo. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Il video e opt-in: la fotocamera si accende solo se un Parent Node la
          chiede, perche tenerla attiva scalda il telefono e consuma batteria. -->
