@@ -42,6 +42,10 @@ export const config = {
 
   pairingCodeTtlMs: int('CRYLOG_PAIRING_TTL_MS', 10 * 60_000),
 
+  // L'app manda il token FCM subito dopo il welcome: un Parent Node che dopo
+  // questo tempo non l'ha ancora fatto non ricevera' push ad app chiusa.
+  fcmTokenGraceMs: 10_000,
+
   // Percorso della service account per le push. Assente = niente FCM, e l'Hub
   // funziona lo stesso: le notifiche arrivano solo ai Parent Node connessi.
   fcmCredentialsPath: process.env.CRYLOG_FCM_CREDENTIALS ?? null,

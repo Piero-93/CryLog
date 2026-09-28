@@ -20,6 +20,9 @@ import { config } from './config.js'
 import { openDatabase } from './db.js'
 import { createFcmSender, loadCredentials } from './fcm.js'
 import { createHub } from './hub.js'
+import { createLogger } from './log.js'
+
+const log = createLogger()
 
 const db = openDatabase(config.dataDir)
 
@@ -31,42 +34,40 @@ function resolveAdminToken() {
 
   const generated = randomBytes(24).toString('base64url')
   db.setSetting('admin_token', generated)
-  console.log('')
-  console.log('  Admin token generato (serve per creare i codici di pairing):')
-  console.log(`      ${generated}`)
-  console.log('  Impostalo come CRYLOG_ADMIN_TOKEN per non dipendere dal database.')
-  console.log('')
+  log.info('admin token generato (serve per creare i codici di pairing):')
+  log.info(`    ${generated}`)
+  log.info('impostalo come CRYLOG_ADMIN_TOKEN per non dipendere dal database')
   return generated
 }
 
-const fcm = createFcmSender({ credentials: resolveFcmCredentials() })
+const fcm = createFcmSender({ credentials: resolveFcmCredentials(), log })
 function resolveFcmCredentials() {
   if (!config.fcmCredentialsPath) {
-    console.log('  FCM non configurato: le notifiche arrivano solo ai Parent Node connessi')
+    log.info('FCM non configurato: le notifiche arrivano solo ai Parent Node connessi')
     return null
   }
   try {
     const credentials = loadCredentials(config.fcmCredentialsPath)
-    console.log(`  FCM attivo sul progetto ${credentials.project_id}`)
+    log.info(`FCM attivo sul progetto ${credentials.project_id}`)
     return credentials
   } catch (err) {
-    console.error(`  service account FCM non caricata: ${err.message}`)
+    log.error(`service account FCM non caricata: ${err.message}`)
     return null
   }
 }
 
-const hub = createHub({ config, db, adminToken: resolveAdminToken(), fcm })
+const hub = createHub({ config, db, adminToken: resolveAdminToken(), fcm, log })
 
 await hub.start()
-console.log(`crylog-hub in ascolto su ${config.host}:${config.port}`)
-console.log(`  offline dopo ${config.offlineAfterMs / 1000}s senza segnali dal Nursery Node`)
+log.info(`crylog-hub in ascolto su ${config.host}:${config.port}`)
+log.info(`offline dopo ${config.offlineAfterMs / 1000}s senza segnali dal Nursery Node`)
 
 let shuttingDown = false
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     if (shuttingDown) return
     shuttingDown = true
-    console.log(`${signal} ricevuto, chiusura`)
+    log.info(`${signal} ricevuto, chiusura`)
     hub.stop().then(() => {
       db.close()
       process.exit(0)
