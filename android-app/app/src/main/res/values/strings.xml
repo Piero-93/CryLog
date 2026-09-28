@@ -32,6 +32,11 @@
     <string name="gone_text_timeout">Il Nursery Node non risponde. Controlla che sia acceso e connesso.</string>
     <string name="gone_text_disconnected">Il Nursery Node si è scollegato.</string>
 
+    <string name="channel_nursery_stopped">Monitoraggio fermato</string>
+    <string name="channel_nursery_stopped_description">Quando qualcuno ferma il Nursery Node</string>
+    <string name="nursery_stopped_title">Monitoraggio fermato</string>
+    <string name="nursery_stopped_text">Qualcuno ha fermato il Nursery Node: nessuno sta sorvegliando.</string>
+
     <string name="channel_status">Stato del monitoraggio</string>
     <string name="channel_status_description">Chi sta monitorando, e da quando</string>
     <string name="watching_title">%1$s sta monitorando</string>

@@ -472,6 +472,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!alerts) return
                 notifier.clearWatching()
                 if (!SeenEvents.markSeen("offline:${message.nurseryId}")) return
+                if (message.reason == HubProtocol.REASON_STOPPED) {
+                    notifier.notifyNurseryStopped()
+                    return
+                }
                 notifier.notifyNurseryGone(message.reason)
                 alerter.alert(vibrate = store.vibrateOnAlert, flash = store.flashOnAlert)
             }

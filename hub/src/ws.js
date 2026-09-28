@@ -21,6 +21,7 @@ import { selectPushTargets } from './fanout.js'
 import { noisePayload, offlinePayload } from './fcm.js'
 import { hashSecret, generateDeviceId } from './pairing.js'
 import {
+  CLOSE_MONITORING_STOPPED,
   error,
   noiseEvent,
   nurseryOffline,
@@ -171,14 +172,16 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
 
     ws.on('pong', () => { connection.lastSeenAt = now() })
 
-    ws.on('close', () => {
+    ws.on('close', (code) => {
       clearTimeout(tokenCheck)
       remove()
       if (closing) return
       db.touchDevice(device.id, now())
       log.info(`disconnesso: ${device.role} "${device.name}"`)
       if (device.role === 'nursery' && !registry.isOnline(device.id)) {
-        announceNurseryGone(connection, 'disconnected')
+        // Fermato a mano: i Parent Node vanno avvisati lo stesso, perche' da
+        // ora nessuno sorveglia, ma senza l'allarme di un guasto.
+        announceNurseryGone(connection, code === CLOSE_MONITORING_STOPPED ? 'stopped' : 'disconnected')
       }
     })
 

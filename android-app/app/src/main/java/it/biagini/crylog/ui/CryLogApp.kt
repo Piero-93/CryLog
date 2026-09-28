@@ -88,6 +88,7 @@ import it.biagini.crylog.MainViewModel
 import it.biagini.crylog.UiState
 import it.biagini.crylog.core.ConnectionState
 import it.biagini.crylog.core.HubMessage
+import it.biagini.crylog.core.HubProtocol
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
 import it.biagini.crylog.parent.ContinuousListening
@@ -994,6 +995,7 @@ private fun EventRow(event: HubMessage) {
         is HubMessage.NurseryOnline -> "${event.nurseryName} è online"
         is HubMessage.NurseryOffline -> when (event.reason) {
             "timeout" -> "${event.nurseryName} non risponde più"
+            HubProtocol.REASON_STOPPED -> "${event.nurseryName} è stato fermato"
             else -> "${event.nurseryName} si è disconnesso"
         }
         is HubMessage.Welcome -> "Sessione avviata come ${event.name}"

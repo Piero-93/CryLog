@@ -86,6 +86,18 @@ sealed interface HubMessage {
 
 object HubProtocol {
 
+    /**
+     * Chiusura di un Nursery Node fermato a mano.
+     *
+     * L'Hub la annuncia come `stopped`, e i Parent Node avvisano senza
+     * allarme. Una chiusura normale non basta a dirlo: e' anche quella di
+     * ogni riconnessione.
+     */
+    const val CLOSE_MONITORING_STOPPED = 4001
+
+    /** Il motivo con cui l'Hub annuncia un Nursery Node fermato a mano. */
+    const val REASON_STOPPED = "stopped"
+
     /** Restituisce null se il messaggio non è JSON valido o non ha un campo "type". */
     fun parse(raw: String): HubMessage? = try {
         val json = JSONObject(raw)
