@@ -102,6 +102,14 @@ export const PAIRING_PAGE = `<!doctype html>
   .state.bad { color: var(--danger); }
   .named { margin-bottom: var(--s2); }
   .hint { color: var(--muted); font-size: .78rem; margin: 6px 2px var(--s2); }
+  .setting { margin-bottom: var(--s3); }
+  .setting:last-child { margin-bottom: 0; }
+  .setting label { display: flex; justify-content: space-between; }
+  input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
+  .segmented { display: flex; gap: var(--s1); }
+  .segmented button { margin-top: 0; background: transparent; color: var(--fg);
+                      border: 1px solid var(--border); font-weight: 500; }
+  .segmented button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .code { font: 700 2rem/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
           letter-spacing: .14em; text-align: center; margin: var(--s2) 0 4px; }
@@ -166,6 +174,30 @@ export const PAIRING_PAGE = `<!doctype html>
       <button id="listen">Ascolta</button>
       <div class="error" id="listenError" hidden></div>
       <audio id="audio" autoplay playsinline></audio>
+    </div>
+
+    <div id="detectionBlock" hidden>
+      <div class="rowhead">
+        <h2 id="detectionTitle">Rilevamento</h2>
+        <span class="state" id="detectionState"></span>
+      </div>
+      <div class="card">
+        <div class="setting">
+          <label for="sensitivity">Sensibilit&agrave; <span id="sensitivityValue"></span></label>
+          <input id="sensitivity" type="range" min="0" max="100" step="1">
+          <p class="hint">Se scattano falsi allarmi abbassala; se non sente il bambino alzala.</p>
+        </div>
+        <div class="setting">
+          <label>Ignora i rumori brevi</label>
+          <div class="segmented" id="minDuration"></div>
+          <p class="hint">Alzala se una porta che sbatte fa scattare l'avviso.</p>
+        </div>
+        <div class="setting">
+          <label>Avvisa al massimo ogni</label>
+          <div class="segmented" id="cooldown"></div>
+          <p class="hint">Evita decine di notifiche durante un pianto lungo.</p>
+        </div>
+      </div>
     </div>
 
     <div class="rowhead">
@@ -493,6 +525,8 @@ export const PAIRING_PAGE = `<!doctype html>
   // Se l'Hub chiude prima ancora di salutare, il token di questo browser non
   // vale piu': succede se il dispositivo viene rimosso dalla lista qui accanto.
   let greeted = false
+  // Le impostazioni annunciate da ciascun Nursery Node collegato.
+  const detections = new Map()
 
   const setState = (text, kind) => {
     const el = $('listenState')
@@ -618,6 +652,25 @@ export const PAIRING_PAGE = `<!doctype html>
   let audioCtx = null
   let meter = null
 
+  // Il livello che vede il rilevatore del Nursery Node, con la sua soglia,
+  // dal canale dati che il Nursery apre accanto all'audio. Quello misurato qui
+  // e' l'audio arrivato, dopo codec ed elaborazione: una soglia disegnata
+  // sopra quello mentirebbe. Come nell'app, vale solo finche' arrivano sia i
+  // livelli sia i pacchetti audio: un canale vivo accanto a un audio fermo
+  // mostrerebbe una cameretta che si muove mentre non si sente niente.
+  const detectorHistory = new Float32Array(SLOTS).fill(SILENCE_DB)
+  let detectorThreshold = null
+  let detectorAt = 0
+  let audioAt = 0
+  let audioPackets = 0
+  let statsTimer = null
+  const FRESH_MS = 2000
+
+  const detectorFresh = () => {
+    const now = Date.now()
+    return detectorThreshold !== null && now - detectorAt < FRESH_MS && now - audioAt < FRESH_MS
+  }
+
   const cssVar = (name) =>
     getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
@@ -638,21 +691,75 @@ export const PAIRING_PAGE = `<!doctype html>
 
     const slot = width / SLOTS
     const bar = Math.max(1, slot * 0.7)
-    ctx.fillStyle = cssVar('--accent') || '#2f6fed'
+    const toY = (db) => height * Math.min(1, Math.max(0, 1 - (db - SILENCE_DB) / -SILENCE_DB))
+    const fromDetector = detectorFresh()
+    const levels = fromDetector ? detectorHistory : history
+    const threshold = fromDetector ? detectorThreshold : null
+    const barColor = cssVar('--accent') || '#2f6fed'
+    const overColor = cssVar('--danger') || '#c0362c'
 
     for (let i = 0; i < SLOTS; i++) {
-      const level = history[i]
-      const top = height * Math.min(1, Math.max(0, 1 - (level - SILENCE_DB) / -SILENCE_DB))
+      const level = levels[i]
+      const top = toY(level)
       if (top >= height) continue
+      ctx.fillStyle = threshold !== null && level >= threshold ? overColor : barColor
       ctx.fillRect(i * slot, top, bar, height - top)
     }
+
+    if (threshold === null) return
+    const y = toY(threshold)
+    ctx.strokeStyle = cssVar('--muted') || '#5b6472'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([6, 4])
+    ctx.beginPath()
+    ctx.moveTo(0, y)
+    ctx.lineTo(width, y)
+    ctx.stroke()
+    ctx.setLineDash([])
   }
 
   const stopMeter = () => {
     if (meter) { clearInterval(meter); meter = null }
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null }
     if (audioCtx) { audioCtx.close(); audioCtx = null }
     history.fill(SILENCE_DB)
+    detectorHistory.fill(SILENCE_DB)
+    detectorThreshold = null
+    detectorAt = 0
+    audioAt = 0
+    audioPackets = 0
     drawChart()
+  }
+
+  // L'analizzatore restituisce silenzio anche quando non arriva niente: per
+  // sapere se l'audio scorre davvero si contano i pacchetti ricevuti.
+  const watchAudio = (conn) => {
+    statsTimer = setInterval(async () => {
+      try {
+        const stats = await conn.getStats()
+        stats.forEach((report) => {
+          if (report.type !== 'inbound-rtp' || report.kind !== 'audio') return
+          if (report.packetsReceived > audioPackets) {
+            audioPackets = report.packetsReceived
+            audioAt = Date.now()
+          }
+        })
+      } catch {
+        // Una connessione gia' chiusa non ha statistiche: ci pensa stopMeter.
+      }
+    }, 500)
+  }
+
+  const onLevel = (event) => {
+    try {
+      const level = JSON.parse(event.data)
+      detectorHistory.copyWithin(0, 1)
+      detectorHistory[SLOTS - 1] = level.levelDb
+      detectorThreshold = level.thresholdDb
+      detectorAt = Date.now()
+    } catch {
+      // Un livello illeggibile si perde: il prossimo arriva fra 200 ms.
+    }
   }
 
   const startMeter = (stream) => {
@@ -695,6 +802,10 @@ export const PAIRING_PAGE = `<!doctype html>
     // TURN non c'e' comunque.
     const conn = new RTCPeerConnection({ iceServers: [] })
 
+    conn.ondatachannel = (event) => {
+      if (event.channel.label === 'level') event.channel.onmessage = onLevel
+    }
+
     conn.ontrack = (event) => {
       $('audio').srcObject = event.streams[0]
       // Il grafico legge lo stesso stream che sta suonando: in Chrome un
@@ -723,6 +834,7 @@ export const PAIRING_PAGE = `<!doctype html>
 
   const onOffer = async (payload) => {
     pc = openPeer()
+    watchAudio(pc)
     await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp })
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -732,8 +844,25 @@ export const PAIRING_PAGE = `<!doctype html>
   const onHubMessage = async (message) => {
     if (message.type === 'welcome') {
       greeted = true
-      setState('richiesta inviata')
-      sendSignal({ kind: 'request', video: false, talkBack: false })
+      if (listening) requestStream()
+      return
+    }
+
+    if (message.type === 'detection') {
+      detections.set(message.nurseryId, message)
+      if (message.nurseryId === $('nursery').value) showDetection(message.changedBy)
+      return
+    }
+
+    if (message.type === 'nursery-offline') {
+      detections.delete(message.nurseryId)
+      showDetection()
+      return
+    }
+
+    if (message.type === 'error' && message.code === 'nursery_offline') {
+      $('detectionState').textContent = 'Nursery Node non collegato'
+      $('detectionState').className = 'state bad'
       return
     }
 
@@ -773,7 +902,6 @@ export const PAIRING_PAGE = `<!doctype html>
     listening = false
     stopMeter()
     if (pc) { pc.close(); pc = null }
-    if (ws) { ws.onclose = null; ws.close(); ws = null }
     $('audio').srcObject = null
     $('listen').textContent = 'Ascolta'
     $('listen').classList.remove('ghost')
@@ -799,41 +927,148 @@ export const PAIRING_PAGE = `<!doctype html>
     }
 
     listening = true
-    greeted = false
     $('listen').textContent = 'Interrompi'
     $('listen').classList.add('ghost')
     $('listen').disabled = false
-    setState("connessione all'Hub…")
 
+    // La connessione all'Hub e' gia' aperta se questo browser era accoppiato;
+    // altrimenti si apre ora, e la richiesta parte al benvenuto.
+    if (ws && greeted) return requestStream()
+    setState("connessione all'Hub…")
+    connectHub()
+  }
+
+  const requestStream = () => {
+    setState('richiesta inviata')
+    sendSignal({ kind: 'request', video: false, talkBack: false })
+  }
+
+  /**
+   * La connessione all'Hub resta aperta finche' la pagina e' aperta, non solo
+   * mentre si ascolta: le impostazioni del rilevamento arrivano da li', e
+   * regolarle non deve costare l'apertura di uno stream.
+   */
+  const connectHub = () => {
+    const token = localStorage.getItem(DEVICE)
+    if (!token || ws) return
+
+    greeted = false
     const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://'
-    ws = new WebSocket(scheme + location.host + BASE + '/ws?token=' + encodeURIComponent(token))
-    ws.onmessage = (event) => {
+    const socket = new WebSocket(scheme + location.host + BASE + '/ws?token=' + encodeURIComponent(token))
+    ws = socket
+
+    socket.onmessage = (event) => {
       try {
         onHubMessage(JSON.parse(event.data))
       } catch {
         // Un messaggio illeggibile non deve buttare giu' la sessione.
       }
     }
-    ws.onclose = (event) => {
-      if (!listening) return
-      if (!greeted) {
-        // Chiuso prima del benvenuto: il token non e' stato accettato. Si
-        // butta via, cosi' il prossimo tentativo riaccoppia invece di
-        // ripetere per sempre lo stesso errore.
+
+    socket.onclose = async (event) => {
+      if (ws !== socket) return
+      ws = null
+      const wasGreeted = greeted
+      greeted = false
+      detections.clear()
+      showDetection()
+
+      if (!wasGreeted && await tokenRejected(token)) {
+        // Rifiutato davvero: il token si butta via, cosi' il prossimo
+        // Ascolta riaccoppia invece di ripetere per sempre lo stesso errore.
         localStorage.removeItem(DEVICE)
         showPairBox()
-        stopListening('questo browser non è più accoppiato: premi di nuovo Ascolta')
+        if (listening) stopListening('questo browser non è più accoppiato: premi di nuovo Ascolta')
         return
       }
-      stopListening(closeReason(event))
+
+      if (listening) stopListening(wasGreeted ? closeReason(event) : 'Hub non raggiungibile')
+      setTimeout(connectHub, 5000)
     }
-    ws.onerror = () => listenError('Hub non raggiungibile.')
   }
+
+  // Una chiusura prima del benvenuto puo' essere un token rifiutato o solo
+  // un Hub che non risponde, e il browser non dice quale: lo si chiede. Senza,
+  // un Hub in riavvio faceva dimenticare a questo browser il suo accoppiamento.
+  const tokenRejected = async (token) => {
+    try {
+      const res = await fetch(BASE + '/devices', { headers: { authorization: 'Bearer ' + token } })
+      return res.status === 401
+    } catch {
+      return false
+    }
+  }
+
+  // --- Il rilevamento del Nursery Node ------------------------------------
+  //
+  // Stesse tre regolazioni dell'app, con la stessa traduzione della soglia in
+  // sensibilita' e gli stessi preset: lo stesso valore deve leggersi allo
+  // stesso modo dal telefono in cameretta e da qui.
+  const MOST_SENSITIVE_DB = -60
+  const LEAST_SENSITIVE_DB = -5
+  const SPAN = LEAST_SENSITIVE_DB - MOST_SENSITIVE_DB
+  const MIN_DURATION_PRESETS = [['Poco', 200], ['Normale', 500], ['Molto', 1500]]
+  const COOLDOWN_PRESETS = [['30 s', 30000], ['1 min', 60000], ['5 min', 300000]]
+
+  const toThreshold = (percent) => LEAST_SENSITIVE_DB - Math.min(1, Math.max(0, percent / 100)) * SPAN
+  const toPercent = (thresholdDb) =>
+    Math.round(Math.min(1, Math.max(0, (LEAST_SENSITIVE_DB - thresholdDb) / SPAN)) * 100)
+
+  const fillPresets = (id, presets, selected, onPick) => {
+    $(id).replaceChildren(...presets.map(([label, value]) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = label
+      button.classList.toggle('on', value === selected)
+      button.addEventListener('click', () => onPick(value))
+      return button
+    }))
+  }
+
+  const sendDetection = (changes) => {
+    const current = detections.get($('nursery').value)
+    if (!current || !ws || !greeted) return
+    const settings = {
+      thresholdDb: current.thresholdDb,
+      minDurationMs: current.minDurationMs,
+      cooldownMs: current.cooldownMs,
+      ...changes,
+    }
+    ws.send(JSON.stringify({ type: 'configure', to: current.nurseryId, ...settings }))
+    $('detectionState').textContent = 'inviata…'
+    $('detectionState').className = 'state'
+  }
+
+  // I controlli mostrano quello che il Nursery Node ha annunciato, non quello
+  // che si e' chiesto: se la richiesta non e' passata, non fingono che sia.
+  function showDetection(changedBy) {
+    const current = detections.get($('nursery').value)
+    $('detectionBlock').hidden = !current
+    if (!current) return
+
+    $('detectionTitle').textContent = 'Rilevamento di ' + current.nurseryName
+    $('sensitivity').value = toPercent(current.thresholdDb)
+    $('sensitivityValue').textContent = toPercent(current.thresholdDb) + '%'
+    fillPresets('minDuration', MIN_DURATION_PRESETS, current.minDurationMs,
+      (value) => sendDetection({ minDurationMs: value }))
+    fillPresets('cooldown', COOLDOWN_PRESETS, current.cooldownMs,
+      (value) => sendDetection({ cooldownMs: value }))
+    $('detectionState').textContent = changedBy ? 'cambiate da ' + changedBy : ''
+    $('detectionState').className = 'state' + (changedBy ? ' live' : '')
+  }
+
+  $('sensitivity').addEventListener('input', () => {
+    $('sensitivityValue').textContent = $('sensitivity').value + '%'
+  })
+  $('sensitivity').addEventListener('change', () => {
+    sendDetection({ thresholdDb: toThreshold(Number($('sensitivity').value)) })
+  })
 
   // Scegliendo un altro Nursery il pulsante deve rivalutarsi subito, senza
   // aspettare il giro di lettura dei dispositivi. E la scelta si ricorda.
   $('nursery').addEventListener('change', () => {
     localStorage.setItem(NURSERY, $('nursery').value)
+    showDetection()
 
     // Cambiare stanza mentre si ascolta chiude la sessione e ne apre una
     // sull'altra, come fa l'app. Non e' il cambio silenzioso che si e'
@@ -871,6 +1106,7 @@ export const PAIRING_PAGE = `<!doctype html>
 
   refreshNotifyButton()
   showPairBox()
+  connectHub()
   drawChart()
   loadEvents()
   setInterval(loadEvents, 5000)
