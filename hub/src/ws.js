@@ -118,7 +118,8 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
       },
     }
 
-    const wasOffline = !registry.isOnline(device.id)
+    const previous = registry.listByDevice(device.id)
+    const wasOffline = previous.length === 0
     const remove = registry.add(connection)
     db.touchDevice(device.id, at)
     connection.send(welcome(device, at))
@@ -137,6 +138,27 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
     }
     log.info(`connesso: ${device.role} "${device.name}" (${device.id})`)
 
+    // Due socket dello stesso Nursery Node si coprono a vicenda: finche' uno
+    // resta vivo, la caduta dell'altro non viene annunciata a nessuno.
+    if (device.role === 'nursery' && previous.length > 0) {
+      log.warn(`nursery "${device.name}" ha gia' ${previous.length} connessioni aperte`)
+    }
+
+    // Senza token FCM un Parent Node non riceve niente ad app chiusa, e prima
+    // lo si scopriva solo da un "0 push" nel log del primo allarme.
+    let tokenCheck = null
+    if (device.role === 'parent') {
+      tokenCheck = setTimeout(() => {
+        if (!db.findDeviceById(device.id)?.fcmToken) {
+          log.warn(
+            `parent "${device.name}" connesso senza token FCM: ad app chiusa non ricevera' push` +
+            ' (normale per la pagina web dell\'Hub)',
+          )
+        }
+      }, config.fcmTokenGraceMs ?? 10_000)
+      tokenCheck.unref?.()
+    }
+
     ws.on('message', (raw) => {
       const parsed = parseClientMessage(raw.toString())
       if (!parsed.ok) {
@@ -150,6 +172,7 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
     ws.on('pong', () => { connection.lastSeenAt = now() })
 
     ws.on('close', () => {
+      clearTimeout(tokenCheck)
       remove()
       if (closing) return
       db.touchDevice(device.id, now())
@@ -199,6 +222,10 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
       }
 
       case 'fcm-token':
+        // L'app lo rimanda a ogni sessione: nel log va solo quando cambia.
+        if (db.findDeviceById(device.id)?.fcmToken !== message.token) {
+          log.info(`token FCM registrato per "${device.name}"`)
+        }
         db.setFcmToken(device.id, message.token)
         break
 
@@ -238,7 +265,17 @@ export function attachWebSocket({ server, db, config, registry, fcm, log = conso
   return {
     wss,
     onStale(connection) {
-      announceNurseryGone(connection, 'timeout')
+      // Un Nursery Node che si e' riconnesso da un'altra rete lascia indietro
+      // il socket vecchio, che scade: non e' il Nursery a essere sparito. Conta
+      // solo un altro socket che si fa ancora sentire, non uno che sta
+      // scadendo nello stesso giro del watchdog.
+      const alive = registry.listByDevice(connection.deviceId).some((other) =>
+        other !== connection && now() - other.lastSeenAt <= config.offlineAfterMs)
+      if (alive) {
+        log.info(`chiusa una connessione scaduta di "${connection.name}", un'altra e' viva`)
+      } else {
+        announceNurseryGone(connection, 'timeout')
+      }
       // close() attenderebbe un close frame di risposta che un device
       // congelato non mandera mai, lasciando la connessione nel registro.
       connection.terminate()

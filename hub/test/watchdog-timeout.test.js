@@ -180,3 +180,58 @@ test('dopo il timeout la connessione congelata viene chiusa dal server', async (
 
   nurseryWs.raw.terminate()
 })
+
+test('il socket vecchio che scade non allarma se il Nursery Node si e\' gia\' riconnesso', async () => {
+  const nursery = await pair('nursery', 'Cameretta 4')
+  const parent = await pair('parent', 'Telefono 4')
+
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  // Il socket di prima resta appeso, come dopo un cambio di rete: il server
+  // non ha visto chiudersi niente.
+  const stale = await connect(nursery.token)
+  await stale.next('welcome')
+  await parentWs.next('nursery-online')
+  stale.freeze()
+
+  const fresh = await connect(nursery.token)
+  await fresh.next('welcome')
+
+  await new Promise((resolve) => setTimeout(resolve, fastConfig.offlineAfterMs * 3))
+
+  await assert.rejects(
+    () => parentWs.next('nursery-offline', 200),
+    'il Nursery Node non e\' mai sparito: un solo socket vivo basta',
+  )
+  assert.equal(hub.registry.listByDevice(nursery.deviceId).length, 1, 'resta solo il socket vivo')
+
+  parentWs.close()
+  fresh.close()
+  stale.raw.terminate()
+})
+
+test('due socket congelati insieme danno comunque l\'allarme', async () => {
+  const nursery = await pair('nursery', 'Cameretta 5')
+  const parent = await pair('parent', 'Telefono 5')
+
+  const parentWs = await connect(parent.token)
+  await parentWs.next('welcome')
+
+  // Stesso processo congelato: tutti e due i socket smettono insieme, e
+  // ciascuno non deve contare l'altro come prova di vita.
+  const first = await connect(nursery.token)
+  await first.next('welcome')
+  const second = await connect(nursery.token)
+  await second.next('welcome')
+  first.freeze()
+  second.freeze()
+
+  const offline = await parentWs.next('nursery-offline')
+  assert.equal(offline.nurseryId, nursery.deviceId)
+  assert.equal(offline.reason, 'timeout')
+
+  parentWs.close()
+  first.raw.terminate()
+  second.raw.terminate()
+})
