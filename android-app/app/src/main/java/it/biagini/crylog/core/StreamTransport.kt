@@ -76,4 +76,12 @@ interface StreamTransport {
      * altre, così può essere esercitato senza connessione.
      */
     suspend fun onSignal(fromPeerId: String, payload: String)
+
+    /**
+     * Manda agli ascoltatori il livello che vede il rilevatore, con la soglia.
+     *
+     * Solo dal Nursery Node, e senza sospendere: si chiama dal thread della
+     * cattura audio, che non puo' aspettare nessuno.
+     */
+    fun publishLevel(levelDb: Double, thresholdDb: Double)
 }

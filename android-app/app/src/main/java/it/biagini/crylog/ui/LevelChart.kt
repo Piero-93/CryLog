@@ -52,8 +52,9 @@ import androidx.compose.material3.LocalContentColor
  * sfiorando la soglia o le stia lontano: il grafico serve a regolare la
  * sensibilità guardando, invece che per tentativi.
  *
- * [thresholdDb] è nullo sul Parent Node, che una soglia non ce l'ha: lì il
- * grafico dice solo quanto sta arrivando. Passargli il pavimento della scala
+ * [thresholdDb] è nullo quando una soglia non c'è: sul Parent Node con un
+ * Nursery che non manda il livello del suo rilevatore, dove il grafico dice
+ * solo quanto sta arrivando. Passargli il pavimento della scala
  * per "disattivarla" tingeva di rosso ogni barra e incollava la linea
  * tratteggiata al bordo inferiore.
  */

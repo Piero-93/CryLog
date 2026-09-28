@@ -95,6 +95,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import it.biagini.crylog.core.PairingCode
 import it.biagini.crylog.parent.ContinuousListening
 import it.biagini.crylog.parent.RemoteVideo
+import it.biagini.crylog.parent.DetectorLevel
 import it.biagini.crylog.parent.StreamLevel
 import it.biagini.crylog.core.TransportState
 import it.biagini.crylog.core.Role
@@ -777,17 +778,9 @@ private fun ListenCard(
                         )
                     }
 
-                    val history by StreamLevel.history.collectAsStateWithLifecycle()
-                    val level by StreamLevel.levelDb.collectAsStateWithLifecycle()
-
                     // Serve a distinguere una cameretta silenziosa da uno stream
                     // che non porta nulla: due situazioni identiche all'orecchio.
-                    LevelChart(history = history)
-                    Text(
-                        "Livello: %.0f dBFS".format(level),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    ParentLevelChart(showLevel = true)
 
                     if (wantTalkBack) {
                         FilledTonalButton(
@@ -870,9 +863,8 @@ private fun ContinuousCard(enabled: Boolean, onEnabledChange: (Boolean) -> Unit)
 
         if (!enabled) return@HeroCard
 
-        val history by StreamLevel.history.collectAsStateWithLifecycle()
         // Distingue una cameretta tranquilla da uno stream che non porta nulla.
-        LevelChart(history = history)
+        ParentLevelChart(showLevel = false)
 
         if (since != 0L) {
             // Ricalcolato ogni minuto: un tempo fermo a "0 min" per tutta la
@@ -981,6 +973,50 @@ private fun ConnectionBanner(connection: ConnectionState, onReconnect: () -> Uni
         }
     }
 }
+
+/**
+ * Il grafico del Parent Node: quello del rilevatore, se il Nursery lo manda.
+ *
+ * Con il livello del rilevatore si vede la soglia vera, e quali suoni la
+ * superano. Ma il grafico serve anche a dire se lo stream porta audio, e il
+ * canale del livello puo' restare vivo mentre l'audio si e' fermato: in quel
+ * caso una curva che si muove rassicurerebbe proprio quando non deve. Quindi
+ * vale solo finche' arrivano anche i campioni audio; altrimenti si torna a
+ * quello dello stream, che si ferma con lui.
+ */
+@Composable
+private fun ParentLevelChart(showLevel: Boolean) {
+    val streamHistory by StreamLevel.history.collectAsStateWithLifecycle()
+    val streamLevel by StreamLevel.levelDb.collectAsStateWithLifecycle()
+    val detectorHistory by DetectorLevel.history.collectAsStateWithLifecycle()
+    val detectorLevel by DetectorLevel.levelDb.collectAsStateWithLifecycle()
+    val threshold by DetectorLevel.thresholdDb.collectAsStateWithLifecycle()
+
+    val now = System.currentTimeMillis()
+    val audioFlowing = now - StreamLevel.lastFrameAtMs < FRESH_MS
+    val detectorFlowing = now - DetectorLevel.lastAtMs < FRESH_MS
+    val fromDetector = threshold != null && audioFlowing && detectorFlowing
+
+    if (fromDetector) {
+        LevelChart(history = detectorHistory, thresholdDb = threshold)
+    } else {
+        LevelChart(history = streamHistory)
+    }
+
+    if (!showLevel) return
+    Text(
+        if (fromDetector) {
+            "Livello in cameretta: %.0f dBFS, soglia a %.0f".format(detectorLevel, threshold)
+        } else {
+            "Livello: %.0f dBFS".format(streamLevel)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Oltre questo senza campioni, audio o del rilevatore, quel grafico non vale piu'. */
+private const val FRESH_MS = 2_000L
 
 /**
  * Il rilevamento del Nursery Node, regolato da qui.
